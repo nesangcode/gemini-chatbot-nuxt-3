@@ -15,6 +15,16 @@ const redirectCookie = useCookie<string | null>(
 )
 
 const hasError = computed(() => typeof route.query.error === 'string')
+const isDebugMode = computed(() => 'debug' in route.query)
+const debugState = computed(() => ({
+  hasError: hasError.value,
+  error: route.query.error ?? null,
+  errorDescription: errorDescription.value,
+  storedRedirectCookie: redirectCookie.value,
+  redirectQuery: route.query.redirect ?? null,
+  resolvedRedirect: resolvedRedirect.value
+}))
+const debugSnapshot = computed(() => JSON.stringify(debugState.value, null, 2))
 const errorDescription = computed(() => {
   if (!hasError.value) {
     return ''
@@ -43,6 +53,14 @@ let redirectTimer: ReturnType<typeof setTimeout> | undefined
 onMounted(() => {
   if (hasError.value) {
     redirectCookie.value = null
+    return
+  }
+
+  if (isDebugMode.value) {
+    console.debug('[Logto][callback] Debug snapshot', {
+      ...debugState.value,
+      timestamp: new Date().toISOString()
+    })
     return
   }
 
@@ -99,6 +117,17 @@ onBeforeUnmount(() => {
       >
         Buka sekarang
       </NuxtLink>
+
+      <div
+        v-if="isDebugMode"
+        class="bg-gray-50 border border-gray-200 text-left text-xs font-mono px-4 py-3 rounded-lg space-y-2"
+      >
+        <span class="text-gray-600 font-semibold">Debug mode aktif</span>
+        <pre class="whitespace-pre-wrap text-gray-700">{{ debugSnapshot }}</pre>
+        <p class="text-gray-500">
+          Navigasi otomatis dinonaktifkan. Gunakan tautan manual di atas untuk melanjutkan.
+        </p>
+      </div>
     </div>
   </div>
 </template>

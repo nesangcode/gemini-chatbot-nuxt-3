@@ -1,8 +1,19 @@
 <script setup>
-import { LOGTO_REDIRECT_FALLBACK, isReservedRedirectPath } from '~/lib/logto/constants'
+import {
+  LOGTO_REDIRECT_COOKIE,
+  LOGTO_REDIRECT_FALLBACK,
+  createRedirectCookieOptions,
+  isReservedRedirectPath
+} from '~/lib/logto/constants'
 
 const { isAuthenticated, signIn } = useLogto()
 const route = useRoute()
+const runtimeConfig = useRuntimeConfig()
+const { logtoCookieSecure = false } = runtimeConfig.public ?? {}
+const redirectCookie = useCookie<string | null>(
+  LOGTO_REDIRECT_COOKIE,
+  createRedirectCookieOptions(logtoCookieSecure)
+)
 
 const redirectPath = computed(() => {
   const redirect = route.query.redirect
@@ -15,6 +26,14 @@ const redirectPath = computed(() => {
 })
 
 const errorMessage = ref('')
+const isDebugMode = computed(() => 'debug' in route.query)
+const debugState = computed(() => ({
+  redirectQuery: route.query.redirect ?? null,
+  normalizedRedirect: redirectPath.value,
+  storedRedirectCookie: redirectCookie.value,
+  isAuthenticated: isAuthenticated.value
+}))
+const debugSnapshot = computed(() => JSON.stringify(debugState.value, null, 2))
 
 const startSignIn = async () => {
   if (isAuthenticated.value) {
@@ -31,8 +50,20 @@ const startSignIn = async () => {
 }
 
 onMounted(() => {
+  if (isDebugMode.value) {
+    console.debug('[Logto][sign-in] Debug snapshot', {
+      ...debugState.value,
+      timestamp: new Date().toISOString()
+    })
+    return
+  }
+
   startSignIn()
 })
+
+const clearRedirectCookie = () => {
+  redirectCookie.value = null
+}
 </script>
 
 <template>
@@ -47,6 +78,24 @@ onMounted(() => {
 
       <div v-if="errorMessage" class="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-lg">
         {{ errorMessage }}
+      </div>
+
+      <div
+        v-if="isDebugMode"
+        class="bg-gray-50 border border-gray-200 text-left text-xs font-mono px-4 py-3 rounded-lg space-y-2"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-gray-600 font-semibold">Debug mode aktif</span>
+          <button
+            type="button"
+            class="text-blue-600 hover:underline"
+            @click="clearRedirectCookie"
+          >
+            Hapus cookie redirect
+          </button>
+        </div>
+        <pre class="whitespace-pre-wrap text-gray-700">{{ debugSnapshot }}</pre>
+        <p class="text-gray-500">Jalankan tombol di bawah untuk mencoba proses masuk secara manual.</p>
       </div>
 
       <button

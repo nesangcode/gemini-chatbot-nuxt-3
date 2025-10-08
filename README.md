@@ -49,6 +49,10 @@ npm run dev
 
 Akses aplikasi di `http://localhost:3000`. Pastikan Anda telah mengatur aplikasi Logto dengan redirect URL `http://localhost:3000/callback`.
 
+### Debug alur masuk Logto
+
+Tambahkan parameter `?debug` pada halaman `/sign-in` atau `/callback/continue` untuk melihat snapshot state autentikasi (nilai cookie redirect, query yang terbaca, hingga tujuan akhir yang akan dipakai). Mode debug menonaktifkan pengalihan otomatis sehingga Anda bisa menelusuri langkah demi langkah sebelum melanjutkan secara manual.
+
 ## Build Production
 
 ```bash
