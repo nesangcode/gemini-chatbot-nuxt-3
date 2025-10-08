@@ -13,6 +13,7 @@ const redirectCookie = useCookie<string | null>(
   LOGTO_REDIRECT_COOKIE,
   createRedirectCookieOptions(logtoCookieSecure)
 )
+const { isAuthenticated } = useLogto()
 
 const hasError = computed(() => typeof route.query.error === 'string')
 const isDebugMode = computed(() => 'debug' in route.query)
@@ -22,7 +23,8 @@ const debugState = computed(() => ({
   errorDescription: errorDescription.value,
   storedRedirectCookie: redirectCookie.value,
   redirectQuery: route.query.redirect ?? null,
-  resolvedRedirect: resolvedRedirect.value
+  resolvedRedirect: resolvedRedirect.value,
+  isAuthenticated: isAuthenticated.value
 }))
 const debugSnapshot = computed(() => JSON.stringify(debugState.value, null, 2))
 const errorDescription = computed(() => {
@@ -61,6 +63,13 @@ onMounted(() => {
       ...debugState.value,
       timestamp: new Date().toISOString()
     })
+    return
+  }
+
+  if (!isAuthenticated.value) {
+    console.warn('[Logto][callback] Missing authenticated session during callback continue redirect')
+    redirectCookie.value = null
+    navigateTo(LOGTO_REDIRECT_FALLBACK, { replace: true })
     return
   }
 
