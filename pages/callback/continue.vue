@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { LOGTO_REDIRECT_COOKIE, LOGTO_REDIRECT_FALLBACK, isReservedRedirectPath } from '~/lib/logto/constants'
+import {
+  LOGTO_REDIRECT_COOKIE,
+  LOGTO_REDIRECT_FALLBACK,
+  createRedirectCookieOptions,
+  isReservedRedirectPath
+} from '~/lib/logto/constants'
 
 const route = useRoute()
-const redirectCookie = useCookie<string | null>(LOGTO_REDIRECT_COOKIE, {
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
-  path: '/',
-  maxAge: 60 * 10
-})
+const runtimeConfig = useRuntimeConfig()
+const { logtoCookieSecure = false } = runtimeConfig.public ?? {}
+const redirectCookie = useCookie<string | null>(
+  LOGTO_REDIRECT_COOKIE,
+  createRedirectCookieOptions(logtoCookieSecure)
+)
 
 const hasError = computed(() => typeof route.query.error === 'string')
 const errorDescription = computed(() => {

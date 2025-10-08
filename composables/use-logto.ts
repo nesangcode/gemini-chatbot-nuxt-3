@@ -1,11 +1,12 @@
 import { computed } from 'vue'
-import { useRequestEvent, navigateTo, useCookie } from '#app'
+import { useRequestEvent, navigateTo, useCookie, useRuntimeConfig } from '#app'
 import { getRequestURL } from 'h3'
 import { useLogtoUser } from '#imports'
 import {
   LOGTO_POST_CALLBACK_REDIRECT,
   LOGTO_REDIRECT_COOKIE,
   LOGTO_REDIRECT_FALLBACK,
+  createRedirectCookieOptions,
   isReservedRedirectPath
 } from '~/lib/logto/constants'
 
@@ -13,15 +14,10 @@ const SIGN_IN_PATH = '/sign-in'
 const SIGN_OUT_PATH = '/sign-out'
 const CALLBACK_PATH = '/callback'
 const REDIRECT_QUERY_KEY = 'redirect'
-const REDIRECT_COOKIE_OPTIONS = {
-  sameSite: 'lax' as const,
-  path: '/',
-  secure: process.env.NODE_ENV === 'production',
-  maxAge: 60 * 10
-}
-
 export function useLogto() {
   const rawUser = useLogtoUser()
+  const runtimeConfig = useRuntimeConfig()
+  const { logtoCookieSecure = false } = runtimeConfig.public ?? {}
 
   const user = computed(() => rawUser?.value)
   const isAuthenticated = computed(() => Boolean(user.value))
@@ -39,22 +35,32 @@ export function useLogto() {
   }
 
   const resolveRedirectCookie = () =>
-    useCookie<string | null>(LOGTO_REDIRECT_COOKIE, REDIRECT_COOKIE_OPTIONS)
+    useCookie<string | null>(
+      LOGTO_REDIRECT_COOKIE,
+      createRedirectCookieOptions(logtoCookieSecure)
+    )
+  const buildInternalUrl = (
+    pathname: string,
+    { redirect, absolute = false }: { redirect?: string; absolute?: boolean } = {}
+  ) => {
+    const origin = process.server
+      ? (() => {
+          const event = useRequestEvent()
+          if (!event) {
+            throw new Error('Missing request event when building internal URL')
+          }
 
-  const buildRedirectUrl = (pathname: string, redirect?: string) => {
-    const redirectValue = normalizedRedirect(redirect)
+          return getRequestURL(event).origin
+        })()
+      : window.location.origin
 
-    if (process.server) {
-      const event = useRequestEvent()
-      const requestUrl = getRequestURL(event)
-      const target = new URL(pathname, requestUrl.origin)
-      target.searchParams.set(REDIRECT_QUERY_KEY, redirectValue)
-      return target.pathname + target.search
+    const target = new URL(pathname, origin)
+
+    if (typeof redirect === 'string') {
+      target.searchParams.set(REDIRECT_QUERY_KEY, redirect)
     }
 
-    const target = new URL(pathname, window.location.origin)
-    target.searchParams.set(REDIRECT_QUERY_KEY, redirectValue)
-    return target.pathname + target.search
+    return absolute ? target.toString() : target.pathname + target.search
   }
 
   const signIn = async (redirect?: string) => {
@@ -62,24 +68,31 @@ export function useLogto() {
     const redirectCookie = resolveRedirectCookie()
     redirectCookie.value = redirectValue
 
-    const target = buildRedirectUrl(SIGN_IN_PATH, redirectValue)
+    const target = buildInternalUrl(SIGN_IN_PATH, {
+      redirect: redirectValue,
+      absolute: process.client
+    })
 
-    if (process.server) {
-      return navigateTo(target)
+    if (process.client) {
+      return navigateTo(target, { external: true, replace: true })
     }
 
-    window.location.assign(target)
+    return navigateTo(target)
   }
 
   const signOut = async () => {
     const redirectCookie = resolveRedirectCookie()
     redirectCookie.value = null
 
-    if (process.server) {
-      return navigateTo(SIGN_OUT_PATH)
+    const target = buildInternalUrl(SIGN_OUT_PATH, {
+      absolute: process.client
+    })
+
+    if (process.client) {
+      return navigateTo(target, { external: true, replace: true })
     }
 
-    window.location.assign(SIGN_OUT_PATH)
+    return navigateTo(target)
   }
 
   return {

@@ -50,7 +50,8 @@ export default defineNuxtConfig({
     // Public keys (exposed to client-side)
     public: {
       logtoEndpoint: process.env.LOGTO_ENDPOINT,
-      logtoAppId: process.env.LOGTO_APP_ID
+      logtoAppId: process.env.LOGTO_APP_ID,
+      logtoCookieSecure: process.env.NODE_ENV === 'production'
     }
   }
 })
