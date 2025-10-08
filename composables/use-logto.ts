@@ -1,12 +1,24 @@
 import { computed } from 'vue'
-import { useRequestEvent, navigateTo } from '#app'
+import { useRequestEvent, navigateTo, useCookie } from '#app'
 import { getRequestURL } from 'h3'
 import { useLogtoUser } from '#imports'
+import {
+  LOGTO_POST_CALLBACK_REDIRECT,
+  LOGTO_REDIRECT_COOKIE,
+  LOGTO_REDIRECT_FALLBACK,
+  isReservedRedirectPath
+} from '~/lib/logto/constants'
 
 const SIGN_IN_PATH = '/sign-in'
 const SIGN_OUT_PATH = '/sign-out'
 const CALLBACK_PATH = '/callback'
 const REDIRECT_QUERY_KEY = 'redirect'
+const REDIRECT_COOKIE_OPTIONS = {
+  sameSite: 'lax' as const,
+  path: '/',
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: 60 * 10
+}
 
 export function useLogto() {
   const rawUser = useLogtoUser()
@@ -16,10 +28,18 @@ export function useLogto() {
 
   const normalizedRedirect = (redirect?: string) => {
     if (typeof redirect !== 'string' || !redirect.startsWith('/')) {
-      return '/chat'
+      return LOGTO_REDIRECT_FALLBACK
     }
+
+    if (isReservedRedirectPath(redirect)) {
+      return LOGTO_REDIRECT_FALLBACK
+    }
+
     return redirect
   }
+
+  const resolveRedirectCookie = () =>
+    useCookie<string | null>(LOGTO_REDIRECT_COOKIE, REDIRECT_COOKIE_OPTIONS)
 
   const buildRedirectUrl = (pathname: string, redirect?: string) => {
     const redirectValue = normalizedRedirect(redirect)
@@ -38,7 +58,11 @@ export function useLogto() {
   }
 
   const signIn = async (redirect?: string) => {
-    const target = buildRedirectUrl(SIGN_IN_PATH, redirect)
+    const redirectValue = normalizedRedirect(redirect)
+    const redirectCookie = resolveRedirectCookie()
+    redirectCookie.value = redirectValue
+
+    const target = buildRedirectUrl(SIGN_IN_PATH, redirectValue)
 
     if (process.server) {
       return navigateTo(target)
@@ -48,6 +72,9 @@ export function useLogto() {
   }
 
   const signOut = async () => {
+    const redirectCookie = resolveRedirectCookie()
+    redirectCookie.value = null
+
     if (process.server) {
       return navigateTo(SIGN_OUT_PATH)
     }
@@ -55,5 +82,12 @@ export function useLogto() {
     window.location.assign(SIGN_OUT_PATH)
   }
 
-  return { user, isAuthenticated, signIn, signOut, callbackPath: CALLBACK_PATH }
+  return {
+    user,
+    isAuthenticated,
+    signIn,
+    signOut,
+    callbackPath: CALLBACK_PATH,
+    postCallbackRedirectPath: LOGTO_POST_CALLBACK_REDIRECT
+  }
 }

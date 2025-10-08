@@ -1,12 +1,17 @@
 <script setup>
+import { LOGTO_REDIRECT_FALLBACK, isReservedRedirectPath } from '~/lib/logto/constants'
+
 const { isAuthenticated, signIn } = useLogto()
 const route = useRoute()
 
 const redirectPath = computed(() => {
   const redirect = route.query.redirect
-  return typeof redirect === 'string' && redirect.startsWith('/')
-    ? redirect
-    : '/chat'
+
+  if (typeof redirect === 'string' && redirect.startsWith('/') && !isReservedRedirectPath(redirect)) {
+    return redirect
+  }
+
+  return LOGTO_REDIRECT_FALLBACK
 })
 
 const errorMessage = ref('')

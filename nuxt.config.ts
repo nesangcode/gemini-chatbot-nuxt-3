@@ -1,3 +1,5 @@
+import { LOGTO_POST_CALLBACK_REDIRECT } from './lib/logto/constants'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -39,7 +41,7 @@ export default defineNuxtConfig({
       appId: process.env.LOGTO_APP_ID,
       appSecret: process.env.LOGTO_APP_SECRET,
       cookieEncryptionKey: process.env.LOGTO_COOKIE_ENCRYPTION_KEY,
-      postCallbackRedirectUri: '/chat',
+      postCallbackRedirectUri: LOGTO_POST_CALLBACK_REDIRECT,
       postLogoutRedirectUri: '/',
       cookieSecure: process.env.NODE_ENV === 'production',
       customRedirectBaseUrl: process.env.LOGTO_BASE_URL ?? 'http://localhost:3000'

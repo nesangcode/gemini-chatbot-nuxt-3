@@ -1,5 +1,13 @@
-<script setup>
+<script setup lang="ts">
+import { LOGTO_REDIRECT_COOKIE, LOGTO_REDIRECT_FALLBACK, isReservedRedirectPath } from '~/lib/logto/constants'
+
 const route = useRoute()
+const redirectCookie = useCookie<string | null>(LOGTO_REDIRECT_COOKIE, {
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  path: '/',
+  maxAge: 60 * 10
+})
 
 const hasError = computed(() => typeof route.query.error === 'string')
 const errorDescription = computed(() => {
@@ -13,22 +21,31 @@ const errorDescription = computed(() => {
     : 'Proses masuk dibatalkan. Silakan coba lagi.'
 })
 
-const redirectPath = computed(() => {
-  const redirect = route.query.redirect
-  return typeof redirect === 'string' && redirect.startsWith('/')
-    ? redirect
-    : '/chat'
+const resolvedRedirect = computed(() => {
+  const candidates = [redirectCookie.value, route.query.redirect]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.startsWith('/') && !isReservedRedirectPath(candidate)) {
+      return candidate
+    }
+  }
+
+  return LOGTO_REDIRECT_FALLBACK
 })
 
-let redirectTimer
+let redirectTimer: ReturnType<typeof setTimeout> | undefined
 
 onMounted(() => {
   if (hasError.value) {
+    redirectCookie.value = null
     return
   }
 
+  const target = resolvedRedirect.value
+  redirectCookie.value = null
+
   redirectTimer = setTimeout(() => {
-    navigateTo(redirectPath.value, { replace: true })
+    navigateTo(target, { replace: true })
   }, 1200)
 })
 
@@ -67,8 +84,16 @@ onBeforeUnmount(() => {
       </NuxtLink>
 
       <p v-else class="text-sm text-gray-500">
-        Anda akan dialihkan ke halaman chat secara otomatis.
+        Anda akan dialihkan ke halaman yang diminta secara otomatis.
       </p>
+
+      <NuxtLink
+        v-if="!hasError"
+        :to="resolvedRedirect"
+        class="text-sm text-blue-600 hover:underline block"
+      >
+        Buka sekarang
+      </NuxtLink>
     </div>
   </div>
 </template>
