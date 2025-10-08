@@ -41,7 +41,8 @@ export default defineNuxtConfig({
       cookieEncryptionKey: process.env.LOGTO_COOKIE_ENCRYPTION_KEY,
       postCallbackRedirectUri: '/chat',
       postLogoutRedirectUri: '/',
-      cookieSecure: process.env.NODE_ENV === 'production'
+      cookieSecure: process.env.NODE_ENV === 'production',
+      customRedirectBaseUrl: process.env.LOGTO_BASE_URL ?? 'http://localhost:3000'
     },
     
     // Public keys (exposed to client-side)
