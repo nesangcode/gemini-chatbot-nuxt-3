@@ -6,7 +6,7 @@ definePageMeta({
 })
 
 // Authentication
-const { signOut, user } = useLogto()
+const { signOut, user } = useLogtoSession()
 
 // Reactive state
 const chatSessions = ref([])

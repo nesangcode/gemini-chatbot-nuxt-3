@@ -14,7 +14,7 @@ const SIGN_IN_PATH = '/sign-in'
 const SIGN_OUT_PATH = '/sign-out'
 const CALLBACK_PATH = '/callback'
 const REDIRECT_QUERY_KEY = 'redirect'
-export function useLogto() {
+export function useLogtoSession() {
   const rawUser = useLogtoUser()
   const runtimeConfig = useRuntimeConfig()
   const { logtoCookieSecure = false } = runtimeConfig.public ?? {}

@@ -13,7 +13,7 @@ const redirectCookie = useCookie<string | null>(
   LOGTO_REDIRECT_COOKIE,
   createRedirectCookieOptions(logtoCookieSecure)
 )
-const { isAuthenticated } = useLogto()
+const { isAuthenticated } = useLogtoSession()
 
 const hasError = computed(() => typeof route.query.error === 'string')
 const isDebugMode = computed(() => 'debug' in route.query)

@@ -1,7 +1,7 @@
 import { abortNavigation } from '#app'
 
 export default defineNuxtRouteMiddleware(async to => {
-  const { isAuthenticated, signIn } = useLogto()
+  const { isAuthenticated, signIn } = useLogtoSession()
 
   if (!isAuthenticated.value) {
     if (process.client) {

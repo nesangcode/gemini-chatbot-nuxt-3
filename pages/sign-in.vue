@@ -6,7 +6,7 @@ import {
   isReservedRedirectPath
 } from '~/lib/logto/constants'
 
-const { isAuthenticated, signIn } = useLogto()
+const { isAuthenticated, signIn } = useLogtoSession()
 const route = useRoute()
 const runtimeConfig = useRuntimeConfig()
 const { logtoCookieSecure = false } = runtimeConfig.public ?? {}
