@@ -3,9 +3,13 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "prebuild": "nuxi prepare",
     "build": "nuxi build",
+    "predev": "nuxi prepare",
     "dev": "nuxi dev",
+    "pregenerate": "nuxi prepare",
     "generate": "nuxi generate",
+    "prepreview": "nuxi prepare",
     "preview": "nuxi preview",
     "postinstall": "nuxi prepare"
   },
