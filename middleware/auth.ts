@@ -1,8 +1,7 @@
-export default defineNuxtRouteMiddleware((to, from) => {
-  const { isAuthenticated } = useLogto()
-  
-  // If user is not authenticated, redirect to home page
+export default defineNuxtRouteMiddleware(to => {
+  const { isAuthenticated, signIn } = useLogto()
+
   if (!isAuthenticated.value) {
-    return navigateTo('/')
+    return signIn(to.fullPath)
   }
 })
