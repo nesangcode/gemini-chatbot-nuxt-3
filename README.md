@@ -21,9 +21,12 @@ LOGTO_ENDPOINT="https://<space>.logto.app"
 LOGTO_APP_ID="..."
 LOGTO_APP_SECRET="..."
 LOGTO_COOKIE_ENCRYPTION_KEY="openssl rand -hex 16"
+LOGTO_BASE_URL="http://localhost:3000"
 ```
 
 > Gunakan koneksi Neon (serverless PostgreSQL) dan pastikan opsi `sslmode=require` terpasang.
+
+Atur `LOGTO_BASE_URL` ke domain aplikasi Anda. Nilai default `http://localhost:3000` cocok untuk pengembangan lokal, sedangkan di produksi (mis. Netlify) gunakan URL publik situs Anda.
 
 ## Instalasi
 

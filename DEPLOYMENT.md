@@ -32,6 +32,7 @@ LOGTO_ENDPOINT="https://your-space.logto.app"
 LOGTO_APP_ID="your_logto_app_id"
 LOGTO_APP_SECRET="your_logto_app_secret"
 LOGTO_COOKIE_ENCRYPTION_KEY="32_character_random_string"
+LOGTO_BASE_URL="http://localhost:3000"
 ```
 
 > Gunakan perintah `openssl rand -hex 16` atau generator rahasia lain untuk menghasilkan nilai `LOGTO_COOKIE_ENCRYPTION_KEY`.
@@ -59,6 +60,9 @@ LOGTO_COOKIE_ENCRYPTION_KEY="32_character_random_string"
    - Development: `http://localhost:3000`
    - Production: `https://<nama-site-netlify>.netlify.app`
 4. Salin `endpoint`, `appId`, dan `appSecret` ke variabel lingkungan.
+5. Setel `LOGTO_BASE_URL` sesuai domain aplikasi:
+   - Development: `http://localhost:3000`
+   - Production: `https://<nama-site-netlify>.netlify.app`
 
 ### 3. Konfigurasi Google Gemini 2.5 Pro
 
