@@ -1,0 +1,29 @@
+type NitroLike = {
+  h3App: { stack?: Array<{ route?: string; handler: unknown }> }
+  captureError?: (error: unknown, context?: Record<string, unknown>) => void
+}
+
+export default defineNitroPlugin((nitro: NitroLike) => {
+  if (process.env.NODE_ENV !== 'development') {
+    return
+  }
+
+  const routesToWarm = new Set(['/__nuxt_error', '/_scripts/**', '/**'])
+
+  setImmediate(() => {
+    const stack = (nitro.h3App as { stack?: Array<{ route?: string; handler: unknown }> }).stack ?? []
+
+    for (const layer of stack) {
+      if (!routesToWarm.has(layer.route)) {
+        continue
+      }
+
+      const resolver = (layer.handler as { __resolve__?: () => Promise<unknown> }).__resolve__
+      if (typeof resolver === 'function') {
+        resolver().catch((error) => {
+          nitro.captureError?.(error, { tags: ['prewarm-renderer'] })
+        })
+      }
+    }
+  })
+})

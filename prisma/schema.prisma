@@ -1,0 +1,51 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String        @id @default(cuid())
+  email     String        @unique
+  logtoId   String        @unique
+  sessions  ChatSession[]
+
+  @@map("users")
+}
+
+model ChatSession {
+  id        String      @id @default(cuid())
+  title     String      @default("New Chat")
+  createdAt DateTime    @default(now())
+  userId    String
+
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@map("chat_sessions")
+}
+
+model Message {
+  id               String      @id @default(cuid())
+  content          String      @db.Text
+  role             String
+  createdAt        DateTime    @default(now())
+  sessionId        String
+  parentMessageId  String?
+
+  session          ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  parentMessage    Message?    @relation("MessageBranch", fields: [parentMessageId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children         Message[]   @relation("MessageBranch")
+
+  @@map("messages")
+}
