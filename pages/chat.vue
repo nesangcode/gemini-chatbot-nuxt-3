@@ -232,12 +232,10 @@ function formatDate(dateString) {
   }
 }
 
+const { $renderMarkdown } = useNuxtApp()
+
 function formatMessage(content) {
-  // Simple markdown-like formatting
-  return content
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code class="px-1.5 py-0.5 bg-gray-100 rounded text-sm">$1</code>')
+  return $renderMarkdown(content)
 }
 
 function autoResize(event) {
@@ -356,9 +354,11 @@ function autoResize(event) {
                 : 'bg-white border border-gray-200 text-gray-900 rounded-tl-sm'
             ]"
           >
-            <div class="prose prose-sm max-w-none" :class="message.role === 'user' ? 'prose-invert' : ''">
-              <div class="whitespace-pre-wrap leading-relaxed" v-html="formatMessage(message.content)"></div>
-            </div>
+            <div 
+              class="prose prose-sm max-w-none leading-snug" 
+              :class="message.role === 'user' ? 'prose-invert' : ''"
+              v-html="formatMessage(message.content)"
+            ></div>
           </div>
           
           <!-- User Avatar -->
