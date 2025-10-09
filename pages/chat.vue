@@ -6,12 +6,7 @@ definePageMeta({
 })
 
 // Authentication
-const { isAuthenticated, signOut, user } = useLogto()
-
-// Redirect if not authenticated
-if (!isAuthenticated.value) {
-  await navigateTo('/')
-}
+const { signOut, user } = useLogtoSession()
 
 // Reactive state
 const chatSessions = ref([])
