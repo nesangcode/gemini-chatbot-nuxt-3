@@ -1,22 +1,38 @@
 <script setup>
 import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon } from 'lucide-vue-next'
 
+import { generateId } from 'ai'
+
 definePageMeta({
   middleware: 'auth'
 })
 
+
 // Authentication
 const { signOut, user } = useLogtoSession()
 
-// Reactive state
+// Chat sessions state
 const chatSessions = ref([])
-const messages = ref([])
 const currentSessionId = ref(null)
 const currentSession = ref(null)
-const inputMessage = ref('')
-const isLoading = ref(false)
+
+// UI refs
 const messagesEndRef = ref(null)
 const inputRef = ref(null)
+
+// Composables
+const { messages, append, isLoading, setMessages } = useChat()
+const inputMessage = ref('')
+
+// Pagination state
+const messagesPagination = ref({
+  total: 0,
+  limit: 20,
+  offset: 0,
+  cursor: null,
+  hasMore: false,
+  loading: false
+})
 
 // Fetch chat sessions on mount
 onMounted(async () => {
@@ -58,11 +74,62 @@ async function selectChatSession(sessionId) {
   currentSession.value = chatSessions.value.find(s => s.id === sessionId)
   
   try {
-    const { data } = await $fetch(`/api/chat/sessions/${sessionId}/messages`)
-    messages.value = data || []
+    // Reset pagination for new session
+    messagesPagination.value = {
+      total: 0,
+      limit: 20,
+      offset: 0,
+      cursor: null,
+      hasMore: false,
+      loading: true
+    }
+    
+    const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=20`)
+    
+    if (response?.success && response?.data) {
+      setMessages(response.data)
+      messagesPagination.value = {
+        ...messagesPagination.value,
+        ...response.pagination,
+        loading: false
+      }
+    } else {
+      setMessages([])
+    }
   } catch (error) {
     console.error('Error fetching messages:', error)
-    messages.value = []
+    setMessages([])
+    messagesPagination.value.loading = false
+  }
+}
+
+async function loadMoreMessages() {
+  if (!currentSessionId.value || !messagesPagination.value.hasMore || messagesPagination.value.loading) {
+    return
+  }
+
+  messagesPagination.value.loading = true
+
+  try {
+    const queryParams = new URLSearchParams({
+      limit: messagesPagination.value.limit.toString(),
+      cursor: messagesPagination.value.cursor || '',
+    })
+
+    const response = await $fetch(`/api/chat/sessions/${currentSessionId.value}/messages?${queryParams}`)
+
+    if (response?.success && response?.data) {
+      // Prepend older messages to the beginning
+      setMessages([...response.data, ...messages.value])
+      messagesPagination.value = {
+        ...messagesPagination.value,
+        ...response.pagination,
+        loading: false,
+      }
+    }
+  } catch (error) {
+    console.error('Error loading more messages:', error)
+    messagesPagination.value.loading = false
   }
 }
 
@@ -83,111 +150,56 @@ async function deleteSession(sessionId) {
     if (currentSessionId.value === sessionId) {
       currentSessionId.value = null
       currentSession.value = null
-      messages.value = []
+      setMessages([])
+      messagesPagination.value = {
+        total: 0,
+        limit: 20,
+        offset: 0,
+        cursor: null,
+        hasMore: false,
+        loading: false
+      }
     }
   } catch (error) {
     console.error('Error deleting session:', error)
   }
 }
 
-async function sendMessage() {
+async function handleSendMessage() {
   if (!inputMessage.value.trim() || !currentSessionId.value || isLoading.value) {
     return
   }
 
-  const userMessage = inputMessage.value.trim()
+  const content = inputMessage.value.trim()
   inputMessage.value = ''
-  isLoading.value = true
-  
-  // Focus back on input
+
+  const isFirstMessage = messages.value.length === 0
+
+  await append(
+    {
+      id: generateId(),
+      role: 'user',
+      content
+    },
+    {
+      body: {
+        sessionId: currentSessionId.value
+      }
+    }
+  )
+
+  // Refocus on input after sending
   nextTick(() => {
     inputRef.value?.focus()
   })
 
-  // Check if this is the first message in the session
-  const isFirstMessage = messages.value.length === 0
-
-  // Add user message to UI immediately
-  const userMsg = {
-    id: Date.now().toString(),
-    content: userMessage,
-    role: 'user',
-    createdAt: new Date().toISOString()
+  // Auto-rename session after first AI response
+  if (isFirstMessage) {
+    await autoRenameSession()
   }
-  messages.value.push(userMsg)
 
-  try {
-    // Send message to API
-    const response = await fetch('/api/chat/message', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        message: userMessage,
-        sessionId: currentSessionId.value
-      })
-    })
-
-    if (!response.ok) {
-      throw new Error('Failed to send message')
-    }
-
-    // Handle streaming response
-    const reader = response.body?.getReader()
-    const decoder = new TextDecoder()
-    
-    // Add AI message placeholder
-    const aiMsg = {
-      id: (Date.now() + 1).toString(),
-      content: '',
-      role: 'assistant',
-      createdAt: new Date().toISOString()
-    }
-    messages.value.push(aiMsg)
-
-    if (reader) {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.content) {
-                aiMsg.content += data.content
-              }
-            } catch (e) {
-              // Ignore parsing errors
-            }
-          }
-        }
-      }
-    }
-
-    // Auto-rename session after first AI response
-    if (isFirstMessage && aiMsg.content.trim()) {
-      await autoRenameSession()
-    }
-
-    // Refresh chat sessions to update timestamps
-    await fetchChatSessions()
-    
-  } catch (error) {
-    console.error('Error sending message:', error)
-    // Remove the AI message placeholder on error
-    messages.value.pop()
-  } finally {
-    isLoading.value = false
-    // Focus back on input
-    nextTick(() => {
-      inputRef.value?.focus()
-    })
-  }
+  // Refresh chat sessions to update timestamps
+  await fetchChatSessions()
 }
 
 async function autoRenameSession() {
@@ -204,8 +216,9 @@ async function autoRenameSession() {
       if (sessionIndex !== -1) {
         chatSessions.value[sessionIndex].title = data.session.title
       }
+      // Re-assign currentSession to trigger reactivity
       if (currentSession.value) {
-        currentSession.value.title = data.session.title
+        currentSession.value = { ...currentSession.value, title: data.session.title }
       }
     }
   } catch (error) {
@@ -243,6 +256,7 @@ function autoResize(event) {
   textarea.style.height = 'auto'
   textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
 }
+
 </script>
 
 <template>
@@ -330,6 +344,18 @@ function autoResize(event) {
 
       <!-- Messages -->
       <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+        <!-- Load More Button -->
+        <div v-if="messagesPagination.hasMore" class="flex justify-center">
+          <button
+            @click="loadMoreMessages"
+            :disabled="messagesPagination.loading"
+            class="bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium py-2 px-4 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Loader2Icon v-if="messagesPagination.loading" class="w-4 h-4 animate-spin" />
+            <span v-else>Muat Lebih Lama</span>
+          </button>
+        </div>
+        
         <div
           v-for="message in messages"
           :key="message.id"
@@ -369,18 +395,6 @@ function autoResize(event) {
           </div>
         </div>
         
-        <!-- Loading indicator -->
-        <div v-if="isLoading" class="flex gap-3 animate-fade-in">
-          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-md">
-            <BotIcon class="w-4 h-4 text-white" />
-          </div>
-          <div class="bg-white border border-gray-200 px-5 py-3 rounded-2xl rounded-tl-sm shadow-sm">
-            <div class="flex items-center gap-2">
-              <Loader2Icon class="w-4 h-4 animate-spin text-indigo-600" />
-              <span class="text-sm text-gray-600">Sedang mengetik...</span>
-            </div>
-          </div>
-        </div>
         
         <div v-if="messages.length === 0 && currentSessionId" class="flex flex-col items-center justify-center py-20 text-center">
           <div class="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-blue-100 flex items-center justify-center mb-4">
@@ -401,7 +415,7 @@ function autoResize(event) {
               <textarea
                 ref="inputRef"
                 v-model="inputMessage"
-                @keydown.enter.exact.prevent="sendMessage"
+                @keydown.enter.exact.prevent="handleSendMessage"
                 :disabled="isLoading || !currentSessionId"
                 placeholder="Ketik pesan Anda... (Enter untuk kirim)"
                 rows="1"
@@ -411,7 +425,7 @@ function autoResize(event) {
               />
             </div>
             <button
-              @click="sendMessage"
+              @click="handleSendMessage"
               :disabled="isLoading || !inputMessage.trim() || !currentSessionId"
               class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-medium p-3 rounded-2xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100 disabled:cursor-not-allowed min-w-[48px]"
             >

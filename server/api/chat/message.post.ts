@@ -212,8 +212,8 @@ export default defineEventHandler(async (event) => {
 
     const shouldAutoRename = existingMessages.length === 0 && session.title === 'New Chat'
 
-    if (latestUserMessage.id) {
-      const alreadyStored = existingMessages.some((message) => message.id === latestUserMessage.id)
+    if (latestUserMessage && latestUserMessage.id) {
+      const alreadyStored = existingMessages.some((message: { id: string }) => message.id === latestUserMessage.id)
 
       if (!alreadyStored) {
         await prisma.message.create({
@@ -236,7 +236,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const conversation = [
-      ...existingMessages.map((message) => {
+      ...existingMessages.map((message: { role: string; content: string | null }) => {
         const parsed = parseStoredMessageContent(message.content)
 
         if (message.role === 'assistant') {
@@ -290,28 +290,9 @@ export default defineEventHandler(async (event) => {
     const encoder = new TextEncoder()
     let cancelled = false
 
-    // Convert Gemini plain text stream into SSE chunks for the client with a human-typing cadence
+    // Convert Gemini plain text stream into SSE chunks for the client
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-        const randomDelay = (min: number, max: number) =>
-          Math.floor(Math.random() * (max - min + 1)) + min
-        const typingDelayFor = (char: string) => {
-          if (char === '\n' || char === '\r') {
-            return randomDelay(180, 260)
-          }
-          if (char === ' ') {
-            return randomDelay(18, 35)
-          }
-          if ('.?!'.includes(char)) {
-            return randomDelay(200, 320)
-          }
-          if (',;:'.includes(char)) {
-            return randomDelay(150, 240)
-          }
-          return randomDelay(12, 28)
-        }
-
         try {
           while (!cancelled) {
             const { done, value } = await textReader.read()
@@ -326,22 +307,8 @@ export default defineEventHandler(async (event) => {
               continue
             }
 
-            for (const char of value) {
-              if (cancelled) {
-                break
-              }
-              if (char === '\r') {
-                continue
-              }
-
-              const payload = `data: ${JSON.stringify({ content: char })}`
-              controller.enqueue(encoder.encode(`${payload}\n\n`))
-
-              const delay = typingDelayFor(char)
-              if (delay > 0) {
-                await sleep(delay)
-              }
-            }
+            const payload = `data: ${JSON.stringify({ content: value })}`
+            controller.enqueue(encoder.encode(`${payload}\n\n`))
 
             if (cancelled) {
               break
