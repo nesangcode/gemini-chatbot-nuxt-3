@@ -1,31 +1,43 @@
 import type { H3Event } from 'h3'
+import { logtoEventHandler } from '#logto'
+import { prisma } from '../../lib/prisma'
 
-// Placeholder function for getting user from session
-// This should be implemented based on your Logto integration
 export async function getUserFromSession(event: H3Event) {
-  // For now, return a mock user
-  // In a real implementation, you would:
-  // 1. Extract the session token from the request
-  // 2. Validate the token with Logto
-  // 3. Return the user information
-  
-  const authHeader = getHeader(event, 'authorization')
-  
-  if (!authHeader) {
+  try {
+    const config = useRuntimeConfig(event)
+    await logtoEventHandler(event, config)
+    
+    // Get Logto user from context
+    const logtoUser = event.context.logtoUser
+    
+    if (!logtoUser?.sub) {
+      return null
+    }
+    
+    // Find or create user in database
+    let user = await prisma.user.findUnique({
+      where: { logtoId: logtoUser.sub }
+    })
+    
+    if (!user) {
+      // Create user if doesn't exist
+      user = await prisma.user.create({
+        data: {
+          logtoId: logtoUser.sub,
+          email: logtoUser.email || `user-${logtoUser.sub}@example.com`
+        }
+      })
+    }
+    
+    return user
+  } catch (error) {
+    console.error('Error in getUserFromSession:', error)
     return null
-  }
-  
-  // Mock user for development
-  // Replace this with actual Logto token validation
-  return {
-    id: 'user_123',
-    email: 'user@example.com',
-    name: 'Test User'
   }
 }
 
-export function requireAuth(event: H3Event) {
-  const user = getUserFromSession(event)
+export async function requireAuth(event: H3Event) {
+  const user = await getUserFromSession(event)
   
   if (!user) {
     throw createError({
