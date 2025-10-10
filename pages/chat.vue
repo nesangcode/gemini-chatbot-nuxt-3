@@ -1,28 +1,47 @@
 <script setup>
 import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon } from 'lucide-vue-next'
-
-import { generateId } from 'ai'
+import { Chat } from '@ai-sdk/vue'
 
 definePageMeta({
   middleware: 'auth'
 })
 
-
 // Authentication
 const { signOut, user } = useLogtoSession()
 
 // Chat sessions state
-const chatSessions = ref([])
 const currentSessionId = ref(null)
 const currentSession = ref(null)
+
+const headers = useRequestHeaders(['cookie'])
+const { data: chatSessions, refresh: fetchChatSessions } = await useAsyncData(
+  'chat-sessions',
+  () => $fetch('/api/chat/sessions', { headers }),
+  {
+    default: () => [],
+    transform: (response) => response.data || [],
+  }
+)
 
 // UI refs
 const messagesEndRef = ref(null)
 const inputRef = ref(null)
 
 // Composables
-const { messages, append, isLoading, setMessages } = useChat()
-const inputMessage = ref('')
+const chat = new Chat({
+  api: '/api/chat',
+  streamProtocol: 'text',
+  body: computed(() => ({
+    sessionId: currentSessionId.value
+  })),
+  onFinish: async () => {
+    // Refresh chat sessions to update timestamps and titles
+    await fetchChatSessions()
+  }
+})
+
+const input = ref('')
+
 
 // Pagination state
 const messagesPagination = ref({
@@ -34,36 +53,26 @@ const messagesPagination = ref({
   loading: false
 })
 
-// Fetch chat sessions on mount
-onMounted(async () => {
-  await fetchChatSessions()
-})
 
 // Auto-scroll to bottom when new messages arrive
-watch(messages, () => {
+watch(chat.messages, () => {
   nextTick(() => {
     messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
   })
 }, { deep: true })
 
 // Methods
-async function fetchChatSessions() {
-  try {
-    const { data } = await $fetch('/api/chat/sessions')
-    chatSessions.value = data || []
-  } catch (error) {
-    console.error('Error fetching chat sessions:', error)
-  }
-}
 
 async function createNewChat() {
   try {
-    const { data } = await $fetch('/api/chat/sessions', {
+    const response = await $fetch('/api/chat/sessions', {
       method: 'POST'
     })
     
-    chatSessions.value.unshift(data)
-    await selectChatSession(data.id)
+    if (response.data) {
+      chatSessions.value.unshift(response.data)
+      await selectChatSession(response.data.id)
+    }
   } catch (error) {
     console.error('Error creating new chat:', error)
   }
@@ -87,18 +96,18 @@ async function selectChatSession(sessionId) {
     const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=20`)
     
     if (response?.success && response?.data) {
-      setMessages(response.data)
+      chat.messages = response.data
       messagesPagination.value = {
         ...messagesPagination.value,
         ...response.pagination,
         loading: false
       }
     } else {
-      setMessages([])
+      chat.messages = []
     }
   } catch (error) {
     console.error('Error fetching messages:', error)
-    setMessages([])
+    chat.messages = []
     messagesPagination.value.loading = false
   }
 }
@@ -120,7 +129,7 @@ async function loadMoreMessages() {
 
     if (response?.success && response?.data) {
       // Prepend older messages to the beginning
-      setMessages([...response.data, ...messages.value])
+      chat.messages = [...response.data, ...chat.messages]
       messagesPagination.value = {
         ...messagesPagination.value,
         ...response.pagination,
@@ -150,7 +159,7 @@ async function deleteSession(sessionId) {
     if (currentSessionId.value === sessionId) {
       currentSessionId.value = null
       currentSession.value = null
-      setMessages([])
+      chat.messages = []
       messagesPagination.value = {
         total: 0,
         limit: 20,
@@ -166,76 +175,37 @@ async function deleteSession(sessionId) {
 }
 
 async function handleSendMessage() {
-  if (!inputMessage.value.trim() || !currentSessionId.value || isLoading.value) {
+  if (!input.value.trim() || !currentSessionId.value || chat.isLoading) {
     return
   }
 
-  const content = inputMessage.value.trim()
-  inputMessage.value = ''
-
-  const isFirstMessage = messages.value.length === 0
-
-  await append(
-    {
-      id: generateId(),
-      role: 'user',
-      content
-    },
+  await chat.sendMessage(
+    { text: input.value },
     {
       body: {
-        sessionId: currentSessionId.value
-      }
+        sessionId: currentSessionId.value,
+      },
     }
   )
+  await selectChatSession(currentSessionId.value)
+  input.value = ''
 
   // Refocus on input after sending
   nextTick(() => {
     inputRef.value?.focus()
   })
-
-  // Auto-rename session after first AI response
-  if (isFirstMessage) {
-    await autoRenameSession()
-  }
-
-  // Refresh chat sessions to update timestamps
-  await fetchChatSessions()
-}
-
-async function autoRenameSession() {
-  if (!currentSessionId.value) return
-  
-  try {
-    const { data } = await $fetch(`/api/chat/sessions/${currentSessionId.value}/rename`, {
-      method: 'POST'
-    })
-    
-    // Update the session title in the UI
-    if (data?.session) {
-      const sessionIndex = chatSessions.value.findIndex(s => s.id === currentSessionId.value)
-      if (sessionIndex !== -1) {
-        chatSessions.value[sessionIndex].title = data.session.title
-      }
-      // Re-assign currentSession to trigger reactivity
-      if (currentSession.value) {
-        currentSession.value = { ...currentSession.value, title: data.session.title }
-      }
-    }
-  } catch (error) {
-    console.error('Error auto-renaming session:', error)
-    // Don't show error to user as this is a background operation
-  }
 }
 
 function formatDate(dateString) {
   const date = new Date(dateString)
   const now = new Date()
   const diffInHours = (now - date) / (1000 * 60 * 60)
-  
+
   if (diffInHours < 24) {
     return date.toLocaleTimeString('id-ID', { 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit', 
+      hour12: true 
     })
   } else {
     return date.toLocaleDateString('id-ID', { 
@@ -248,13 +218,61 @@ function formatDate(dateString) {
 const { $renderMarkdown } = useNuxtApp()
 
 function formatMessage(content) {
-  return $renderMarkdown(content)
+  return $renderMarkdown(content || '')
+}
+
+function getMessageText(message) {
+  if (!message) {
+    return ''
+  }
+
+  if (typeof message.content === 'string') {
+    return message.content
+  }
+
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((part) => {
+        if (typeof part === 'string') {
+          return part
+        }
+        if (typeof part?.text === 'string') {
+          return part.text
+        }
+        return ''
+      })
+      .join('')
+  }
+
+  if (Array.isArray(message.parts)) {
+    return message.parts
+      .map((part) => {
+        if (typeof part === 'string') {
+          return part
+        }
+        if (typeof part?.text === 'string') {
+          return part.text
+        }
+        return ''
+      })
+      .join('')
+  }
+
+  if (typeof message.text === 'string') {
+    return message.text
+  }
+
+  return ''
 }
 
 function autoResize(event) {
   const textarea = event.target
   textarea.style.height = 'auto'
   textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px'
+}
+
+function onInput(event) {
+  autoResize(event)
 }
 
 </script>
@@ -344,6 +362,20 @@ function autoResize(event) {
 
       <!-- Messages -->
       <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+        <!-- Error Alert -->
+        <div v-if="chat.error" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow-md relative animate-fade-in">
+          <div class="flex">
+            <div class="py-1"><svg class="fill-current h-6 w-6 text-red-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zM10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm-1-5a1 1 0 0 1 1-1h2a1 1 0 0 1 0 2h-2a1 1 0 0 1-1-1zm-1-4a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1z"/></svg></div>
+            <div>
+              <p class="font-bold">Terjadi Kesalahan</p>
+              <p class="text-sm">{{ chat.error.message }}</p>
+            </div>
+          </div>
+          <button @click="chat.error = null" class="absolute top-2 right-2 text-red-500 hover:text-red-700">
+            <svg class="fill-current h-6 w-6" role="button" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><title>Close</title><path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.029a1.2 1.2 0 1 1-1.697-1.697l2.758-3.15-2.759-3.152a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.031a1.2 1.2 0 1 1 1.697 1.697l-2.758 3.152 2.758 3.15a1.2 1.2 0 0 1 0 1.698z"/></svg>
+          </button>
+        </div>
+
         <!-- Load More Button -->
         <div v-if="messagesPagination.hasMore" class="flex justify-center">
           <button
@@ -357,8 +389,8 @@ function autoResize(event) {
         </div>
         
         <div
-          v-for="message in messages"
-          :key="message.id"
+          v-for="(message, index) in chat.messages"
+          :key="message.id || index"
           :class="[
             'flex gap-3 animate-fade-in',
             message.role === 'user' ? 'justify-end' : 'justify-start'
@@ -383,7 +415,7 @@ function autoResize(event) {
             <div 
               class="prose prose-sm max-w-none leading-snug" 
               :class="message.role === 'user' ? 'prose-invert' : ''"
-              v-html="formatMessage(message.content)"
+              v-html="formatMessage(getMessageText(message))"
             ></div>
           </div>
           
@@ -396,7 +428,7 @@ function autoResize(event) {
         </div>
         
         
-        <div v-if="messages.length === 0 && currentSessionId" class="flex flex-col items-center justify-center py-20 text-center">
+        <div v-if="chat.messages.length === 0 && currentSessionId" class="flex flex-col items-center justify-center py-20 text-center">
           <div class="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-blue-100 flex items-center justify-center mb-4">
             <SparklesIcon class="w-10 h-10 text-indigo-600" />
           </div>
@@ -412,21 +444,23 @@ function autoResize(event) {
         <div class="max-w-4xl mx-auto">
           <div class="flex gap-3 items-end">
             <div class="flex-1 relative">
-              <textarea
-                ref="inputRef"
-                v-model="inputMessage"
-                @keydown.enter.exact.prevent="handleSendMessage"
-                :disabled="isLoading || !currentSessionId"
-                placeholder="Ketik pesan Anda... (Enter untuk kirim)"
-                rows="1"
-                class="w-full px-5 py-3 pr-12 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 resize-none transition-all duration-200 shadow-sm hover:shadow-md"
-                style="max-height: 150px; min-height: 48px;"
-                @input="autoResize"
-              />
+              <form @submit.prevent="handleSendMessage">
+                <textarea
+                  ref="inputRef"
+                  v-model="input"
+                  @input="onInput"
+                  @keydown.enter.exact.prevent="handleSendMessage"
+                  :disabled="chat.isLoading || !currentSessionId"
+                  placeholder="Ketik pesan Anda... (Enter untuk kirim)"
+                  rows="1"
+                  class="w-full px-5 py-3 pr-12 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 resize-none transition-all duration-200 shadow-sm hover:shadow-md"
+                  style="max-height: 150px; min-height: 48px;"
+                />
+              </form>
             </div>
             <button
               @click="handleSendMessage"
-              :disabled="isLoading || !inputMessage.trim() || !currentSessionId"
+              :disabled="chat.isLoading || !input.trim() || !currentSessionId"
               class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-medium p-3 rounded-2xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100 disabled:cursor-not-allowed min-w-[48px]"
             >
               <SendIcon class="w-5 h-5" />
