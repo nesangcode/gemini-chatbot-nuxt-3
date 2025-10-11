@@ -1,5 +1,5 @@
 <script setup>
-import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon } from 'lucide-vue-next'
+import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon, SquareIcon } from 'lucide-vue-next'
 import { Chat } from '@ai-sdk/vue'
 
 definePageMeta({
@@ -40,7 +40,11 @@ const chat = new Chat({
   }
 })
 
+const isChatStreaming = ref(false)
+const isChatBusy = computed(() => chat.isLoading || isChatStreaming.value)
+
 const input = ref('')
+const canSendMessage = computed(() => !!input.value.trim() && !!currentSessionId.value && !isChatBusy.value)
 
 
 // Pagination state
@@ -175,25 +179,40 @@ async function deleteSession(sessionId) {
 }
 
 async function handleSendMessage() {
-  if (!input.value.trim() || !currentSessionId.value || chat.isLoading) {
+  if (!input.value.trim() || !currentSessionId.value || chat.isLoading || isChatStreaming.value) {
     return
   }
 
-  await chat.sendMessage(
-    { text: input.value },
-    {
-      body: {
-        sessionId: currentSessionId.value,
-      },
-    }
-  )
-  await selectChatSession(currentSessionId.value)
-  input.value = ''
+  isChatStreaming.value = true
 
-  // Refocus on input after sending
-  nextTick(() => {
-    inputRef.value?.focus()
-  })
+  try {
+    await chat.sendMessage(
+      { text: input.value },
+      {
+        body: {
+          sessionId: currentSessionId.value,
+        },
+      }
+    )
+    await selectChatSession(currentSessionId.value)
+    input.value = ''
+  } catch (error) {
+    console.error('Error sending message:', error)
+  } finally {
+    isChatStreaming.value = false
+
+    // Refocus on input after sending
+    nextTick(() => {
+      inputRef.value?.focus()
+    })
+  }
+}
+
+function handleStop() {
+  if (typeof chat.stop === 'function') {
+    chat.stop()
+  }
+  isChatStreaming.value = false
 }
 
 function formatDate(dateString) {
@@ -442,7 +461,7 @@ function onInput(event) {
       <!-- Input Area -->
       <div class="bg-white/80 backdrop-blur-xl border-t border-gray-200/50 p-4 shadow-lg">
         <div class="max-w-4xl mx-auto">
-          <div class="flex gap-3 items-end">
+          <div class="flex gap-3 items-center">
             <div class="flex-1 relative">
               <form @submit.prevent="handleSendMessage">
                 <textarea
@@ -450,23 +469,34 @@ function onInput(event) {
                   v-model="input"
                   @input="onInput"
                   @keydown.enter.exact.prevent="handleSendMessage"
-                  :disabled="chat.isLoading || !currentSessionId"
+                  :disabled="isChatBusy || !currentSessionId"
                   placeholder="Ketik pesan Anda... (Enter untuk kirim)"
                   rows="1"
-                  class="w-full px-5 py-3 pr-12 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 resize-none transition-all duration-200 shadow-sm hover:shadow-md"
+                  :class="[
+                    'w-full px-5 py-3 pr-12 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 resize-none transition-all duration-200 shadow-sm hover:shadow-md',
+                    {
+                      'text-gray-400 placeholder:text-gray-400': isChatBusy || !currentSessionId
+                    }
+                  ]"
                   style="max-height: 150px; min-height: 48px;"
                 />
               </form>
             </div>
             <button
-              @click="handleSendMessage"
-              :disabled="chat.isLoading || !input.trim() || !currentSessionId"
-              class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400 text-white font-medium p-3 rounded-2xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100 disabled:cursor-not-allowed min-w-[48px]"
+              type="button"
+              @click="isChatBusy ? handleStop() : handleSendMessage()"
+              :disabled="isChatBusy ? false : !canSendMessage"
+              :class="[
+                'text-white font-medium px-5 rounded-2xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100 disabled:cursor-not-allowed min-w-[48px] h-12',
+                isChatBusy
+                  ? 'bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700'
+                  : 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-400'
+              ]"
             >
-              <SendIcon class="w-5 h-5" />
+              <SquareIcon v-if="isChatBusy" class="w-5 h-5" />
+              <SendIcon v-else class="w-5 h-5" />
             </button>
           </div>
-          <p class="text-xs text-gray-500 mt-2 text-center">Gemini dapat membuat kesalahan. Periksa informasi penting.</p>
         </div>
       </div>
     </div>
