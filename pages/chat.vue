@@ -124,7 +124,6 @@ const messagesEndRef = ref(null)
 const inputRef = ref(null)
 
 // State for tracking chat completion
-const isChatStreaming = ref(false)
 const finishHandlerExecuting = ref(false)
 
 /**
@@ -187,16 +186,16 @@ async function handleChatFinish() {
 }
 
 // Composables
-// Using Chat class with text protocol matching backend's toTextStreamResponse()
+// Using Chat class with TextStreamChatTransport for proper text streaming
 const chat = new Chat({
-    transport: new TextStreamChatTransport({
-      api: '/api/chat',
+  transport: new TextStreamChatTransport({
+    api: '/api/chat',
+    body: () => ({ 
+      sessionId: currentSessionId.value 
     }),
-  body: computed(() => ({ 
-    sessionId: currentSessionId.value 
-  })),
-  credentials: 'include',
-  onFinish: async (options) => {
+    credentials: 'include',
+  }),
+  onFinish: (options) => {
     // Handle different completion scenarios
     if (options.isError) {
       console.error('[Chat] Stream finished with error')
@@ -208,8 +207,8 @@ const chat = new Chat({
       console.log('[Chat] Stream aborted by user')
     }
     
-    // Always call handleChatFinish to reset state
-    await handleChatFinish()
+    // Call handleChatFinish to reset state (non-blocking)
+    handleChatFinish()
   },
   onError: (error) => {
     console.error('[Chat] onError:', error)
@@ -218,24 +217,7 @@ const chat = new Chat({
 })
 
 // Chat composable initialized
-
-const isChatBusy = computed(() => chat.isLoading || isChatStreaming.value)
-
-// Watch for when chat.isLoading becomes false to detect stream completion
-// This is a fallback in case onFinish doesn't fire reliably with text protocol
-watch(() => chat.isLoading, async (newLoading, oldLoading) => {
-  // Detect when loading just finished (was true, now false)
-  if (oldLoading === true && newLoading === false && isChatStreaming.value && !finishHandlerExecuting.value) {
-    isChatStreaming.value = false
-    // Slight delay to ensure onFinish has a chance to fire first
-    await new Promise(resolve => setTimeout(resolve, 100))
-    // Only call if onFinish hasn't been triggered yet
-    if (!finishHandlerExecuting.value) {
-      console.log('[Chat] onFinish did not fire, executing handleChatFinish from watch')
-      await handleChatFinish()
-    }
-  }
-})
+const isChatBusy = computed(() => chat.status === 'streaming' || chat.status === 'submitted')
 
 const input = ref('')
 const selectedImages = ref([])
@@ -466,11 +448,10 @@ async function deleteSession(sessionId) {
 }
 
 async function handleSendMessage() {
-  if ((!input.value.trim() && selectedImages.value.length === 0 && selectedPdfs.value.length === 0) || !currentSessionId.value || chat.isLoading || isChatStreaming.value) {
+  if ((!input.value.trim() && selectedImages.value.length === 0 && selectedPdfs.value.length === 0) || !currentSessionId.value || chat.status === 'streaming' || chat.status === 'submitted') {
     return
   }
 
-  isChatStreaming.value = true
   chatError.value = null
 
   try {
@@ -544,7 +525,6 @@ async function handleSendMessage() {
     selectedPdfs.value = []
   } catch (error) {
     chatError.value = handleNetworkError(error, 'mengirim pesan')
-    isChatStreaming.value = false // Only reset on error
   } finally {
     // Refocus on input after sending
     nextTick(() => {
