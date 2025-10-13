@@ -25,6 +25,7 @@ export default defineEventHandler(async (event) => {
       select: {
         id: true,
         title: true,
+        model: true,
         createdAt: true,
         messages: {
           orderBy: { createdAt: 'desc' },
@@ -45,6 +46,7 @@ export default defineEventHandler(async (event) => {
     type SessionWithActivity = {
       id: string
       title: string
+      model: string
       createdAt: Date
       updatedAt: Date
     }
@@ -56,6 +58,7 @@ export default defineEventHandler(async (event) => {
         return {
           id: session.id,
           title: session.title,
+          model: session.model,
           createdAt: session.createdAt,
           updatedAt: lastActivity
         }
@@ -64,6 +67,7 @@ export default defineEventHandler(async (event) => {
       .map((session: SessionWithActivity) => ({
         id: session.id,
         title: session.title,
+        model: session.model,
         createdAt: session.createdAt.toISOString(),
         updatedAt: session.updatedAt.toISOString()
       }))

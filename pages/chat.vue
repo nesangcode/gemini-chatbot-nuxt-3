@@ -2,6 +2,7 @@
 import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon, SquareIcon, ImagePlusIcon, XIcon, FileTextIcon } from 'lucide-vue-next'
 import { Chat } from '@ai-sdk/vue'
 import { TextStreamChatTransport } from 'ai';
+import ModelSelector from '~/components/ModelSelector.vue'
 
 definePageMeta({
   middleware: 'auth'
@@ -14,6 +15,7 @@ const { signOut, user } = useLogtoSession()
 const currentSessionId = ref(null)
 const currentSession = ref(null)
 const loadingSessionId = ref(null)
+const selectedModel = ref('gemini-2.5-flash')
 
 // Error states
 const sidebarError = ref(null)
@@ -121,10 +123,12 @@ console.log('[Chat] Page initialized, setting up chat composable')
 
 // UI refs
 const messagesEndRef = ref(null)
+const messagesContainerRef = ref(null)
 const inputRef = ref(null)
 
 // State for tracking chat completion
 const finishHandlerExecuting = ref(false)
+const isLoadingOlderMessages = ref(false)
 
 /**
  * Architecture: Reactive Streaming with Optimistic Updates
@@ -232,7 +236,7 @@ const canSendMessage = computed(() => (!!input.value.trim() || selectedImages.va
 // Pagination state
 const messagesPagination = ref({
   total: 0,
-  limit: 20,
+  limit: 10,
   offset: 0,
   cursor: null,
   hasMore: false,
@@ -240,31 +244,53 @@ const messagesPagination = ref({
 })
 
 function mapApiMessageToUiMessage(message) {
-  try {
-    // Try to parse content as JSON for multimodal messages
-    const parsed = JSON.parse(message.content)
-    if (parsed.type === 'multimodal') {
-      console.log('[Chat] Mapped multimodal message:', {
-        hasImages: !!parsed.images,
-        hasPdfs: !!parsed.pdfs,
-        imageCount: parsed.images?.length || 0,
-        pdfCount: parsed.pdfs?.length || 0
-      })
-      return {
-        ...message,
-        content: parsed,
-        parts: [
-          {
-            type: 'text',
-            text: parsed.text || ''
-          }
-        ]
-      }
+  // Check if content is already a parsed multimodal object
+  if (message.content && typeof message.content === 'object' && message.content.type === 'multimodal') {
+    console.log('[Chat] Mapped multimodal message (pre-parsed):', {
+      hasImages: !!message.content.images,
+      hasPdfs: !!message.content.pdfs,
+      imageCount: message.content.images?.length || 0,
+      pdfCount: message.content.pdfs?.length || 0
+    })
+    return {
+      ...message,
+      parts: [
+        {
+          type: 'text',
+          text: message.content.text || ''
+        }
+      ]
     }
-  } catch (e) {
-    // Not JSON, treat as plain text
   }
   
+  // Try to parse content as JSON string for backward compatibility
+  if (typeof message.content === 'string') {
+    try {
+      const parsed = JSON.parse(message.content)
+      if (parsed.type === 'multimodal') {
+        console.log('[Chat] Mapped multimodal message (parsed from string):', {
+          hasImages: !!parsed.images,
+          hasPdfs: !!parsed.pdfs,
+          imageCount: parsed.images?.length || 0,
+          pdfCount: parsed.pdfs?.length || 0
+        })
+        return {
+          ...message,
+          content: parsed,
+          parts: [
+            {
+              type: 'text',
+              text: parsed.text || ''
+            }
+          ]
+        }
+      }
+    } catch (e) {
+      // Not JSON, treat as plain text
+    }
+  }
+  
+  // Plain text message
   return {
     ...message,
     parts: [
@@ -277,8 +303,13 @@ function mapApiMessageToUiMessage(message) {
 }
 
 
-// Auto-scroll to bottom when new messages arrive
+// Auto-scroll to bottom when new messages arrive (but not when loading older messages)
 watch(() => chat.messages, (newMessages, oldMessages) => {
+  // Don't auto-scroll when loading older messages
+  if (isLoadingOlderMessages.value) {
+    return
+  }
+  
   nextTick(() => {
     messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
   })
@@ -321,7 +352,10 @@ async function createNewChat() {
   try {
     sidebarError.value = null
     const response = await $fetch('/api/chat/sessions', {
-      method: 'POST'
+      method: 'POST',
+      body: {
+        model: selectedModel.value
+      }
     })
     
     if (response.data) {
@@ -338,11 +372,16 @@ async function selectChatSession(sessionId) {
   currentSessionId.value = sessionId
   currentSession.value = chatSessions.value.find(s => s.id === sessionId)
   
+  // Update selected model when switching sessions
+  if (currentSession.value?.model) {
+    selectedModel.value = currentSession.value.model
+  }
+  
   try {
     // Reset pagination for new session
     messagesPagination.value = {
       total: 0,
-      limit: 20,
+      limit: 10,
       offset: 0,
       cursor: null,
       hasMore: false,
@@ -351,7 +390,7 @@ async function selectChatSession(sessionId) {
     messagesError.value = null
     
     // Fetch messages - API returns newest first (DESC), then reverses them
-    const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=20`)
+    const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=10`)
     
     console.log('[Chat] Messages API response:', {
       success: response?.success,
@@ -388,6 +427,12 @@ async function loadMoreMessages() {
   }
 
   messagesPagination.value.loading = true
+  isLoadingOlderMessages.value = true
+  
+  // Save scroll position before adding messages
+  const container = messagesContainerRef.value
+  const scrollHeightBefore = container?.scrollHeight || 0
+  const scrollTopBefore = container?.scrollTop || 0
 
   try {
     const queryParams = new URLSearchParams({
@@ -406,10 +451,24 @@ async function loadMoreMessages() {
         ...response.pagination,
         loading: false,
       }
+      
+      // Restore scroll position after messages are added
+      await nextTick()
+      if (container) {
+        const scrollHeightAfter = container.scrollHeight
+        const addedHeight = scrollHeightAfter - scrollHeightBefore
+        container.scrollTop = scrollTopBefore + addedHeight
+      }
+      
+      // Re-enable auto-scroll after a small delay
+      setTimeout(() => {
+        isLoadingOlderMessages.value = false
+      }, 100)
     }
   } catch (error) {
     messagesError.value = handleNetworkError(error, 'memuat lebih banyak pesan')
     messagesPagination.value.loading = false
+    isLoadingOlderMessages.value = false
   }
 }
 
@@ -435,7 +494,7 @@ async function deleteSession(sessionId) {
       messagesError.value = null
       messagesPagination.value = {
         total: 0,
-        limit: 20,
+        limit: 10,
         offset: 0,
         cursor: null,
         hasMore: false,
@@ -466,20 +525,18 @@ async function handleSendMessage() {
       // https://sdk.vercel.ai/docs/reference/ai-sdk-core/core-message
       const contentParts = []
       
-      // Add text part if present (TextPart)
-      if (input.value.trim()) {
-        contentParts.push({
-          type: 'text',
-          text: input.value
-        })
-      }
+      // Always add text part first (required by Gemini, even if empty)
+      contentParts.push({
+        type: 'text',
+        text: input.value.trim() || 'Silakan analisis gambar/file ini.'
+      })
       
       // Add image parts (ImagePart) - AI SDK standard for images
       selectedImages.value.forEach((image) => {
         contentParts.push({
           type: 'image',
           image: image.data, // base64 string
-          mimeType: image.mimeType
+          ...(image.mimeType && { mediaType: image.mimeType })
         })
       })
       
@@ -489,9 +546,7 @@ async function handleSendMessage() {
         contentParts.push({
           type: 'file',
           data: pdf.data,
-          mimeType: pdf.mimeType,
-          name: pdf.name,
-          size: pdf.size
+          mediaType: pdf.mimeType,
         })
       })
       
@@ -797,6 +852,36 @@ function formatFileSize(bytes) {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
+async function handleModelChange(newModel) {
+  if (!currentSessionId.value) {
+    // If no session is selected, just update the default model for new sessions
+    selectedModel.value = newModel
+    return
+  }
+  
+  try {
+    const response = await $fetch(`/api/chat/sessions/${currentSessionId.value}/model`, {
+      method: 'PATCH',
+      body: { model: newModel }
+    })
+    
+    if (response.success) {
+      selectedModel.value = newModel
+      // Update the session in the list
+      if (currentSession.value) {
+        currentSession.value.model = newModel
+      }
+      const sessionInList = chatSessions.value.find(s => s.id === currentSessionId.value)
+      if (sessionInList) {
+        sessionInList.model = newModel
+      }
+    }
+  } catch (error) {
+    console.error('Error updating model:', error)
+    chatError.value = handleNetworkError(error, 'mengubah model')
+  }
+}
+
 </script>
 
 <template>
@@ -909,21 +994,30 @@ function formatFileSize(bytes) {
     <div class="flex-1 flex flex-col">
       <!-- Chat Header -->
       <div class="bg-white/80 backdrop-blur-xl border-b border-gray-200/50 p-4 shadow-sm">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg">
-            <BotIcon class="w-5 h-5 text-white" />
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-lg flex-shrink-0">
+              <BotIcon class="w-5 h-5 text-white" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h2 class="text-lg font-semibold text-gray-900 truncate">
+                {{ currentSession?.title || 'Pilih atau buat chat baru' }}
+              </h2>
+              <p class="text-xs text-gray-500">Powered by Google Gemini AI</p>
+            </div>
           </div>
-          <div>
-            <h2 class="text-lg font-semibold text-gray-900">
-              {{ currentSession?.title || 'Pilih atau buat chat baru' }}
-            </h2>
-            <p class="text-xs text-gray-500">Powered by Google Gemini 2.5 Pro</p>
+          <div class="flex-shrink-0">
+            <ModelSelector
+              v-model="selectedModel"
+              :disabled="isChatBusy"
+              @update:model-value="handleModelChange"
+            />
           </div>
         </div>
       </div>
 
       <!-- Messages -->
-      <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+      <div ref="messagesContainerRef" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
         <!-- Loading State -->
         <div v-if="messagesPagination.loading && chat.messages.length === 0" class="flex flex-col items-center justify-center py-20">
           <Loader2Icon class="w-12 h-12 text-indigo-600 animate-spin mb-4" />
@@ -1081,6 +1175,20 @@ function formatFileSize(bytes) {
           </div>
         </div>
         
+        <!-- AI Typing Indicator -->
+        <div v-if="isChatBusy && chat.status === 'submitted'" class="flex gap-3 animate-fade-in">
+          <div class="flex-shrink-0">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center shadow-md">
+              <BotIcon class="w-4 h-4 text-white" />
+            </div>
+          </div>
+          <div class="max-w-2xl px-5 py-3 rounded-2xl shadow-sm bg-white border border-gray-200 text-gray-900 rounded-tl-sm">
+            <div class="flex items-center gap-2">
+              <Loader2Icon class="w-4 h-4 text-indigo-600 animate-spin" />
+              <span class="text-sm text-gray-600">Sedang berpikir...</span>
+            </div>
+          </div>
+        </div>
         
         <div v-if="chat.messages.length === 0 && currentSessionId" class="flex flex-col items-center justify-center py-20 text-center">
           <div class="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-blue-100 flex items-center justify-center mb-4">

@@ -4,10 +4,13 @@ import { requireAuth } from '../../utils/auth'
 export default defineEventHandler(async (event) => {
   try {
     const user = await requireAuth(event)
+    const body = await readBody(event).catch(() => ({}))
+    const model = body?.model || 'gemini-2.5-flash'
 
     const newSession = await prisma.chatSession.create({
       data: {
-        userId: user.id
+        userId: user.id,
+        model: model
       }
     })
 
@@ -16,6 +19,7 @@ export default defineEventHandler(async (event) => {
       data: {
         id: newSession.id,
         title: newSession.title,
+        model: newSession.model,
         createdAt: newSession.createdAt.toISOString(),
         updatedAt: newSession.createdAt.toISOString()
       }
