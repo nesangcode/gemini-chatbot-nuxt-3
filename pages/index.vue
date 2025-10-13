@@ -89,6 +89,13 @@
 import { SparklesIcon, MessageSquareIcon, BotIcon, HistoryIcon, LogInIcon, CheckCircleIcon, ArrowRightIcon } from 'lucide-vue-next'
 import { useLogtoUser, useLogtoSession } from '#imports'
 
+// Check server-side session and redirect if authenticated
+const { data: authResponse } = await useFetch('/api/auth/me')
+
+if (authResponse.value?.user) {
+  await navigateTo('/chat', { replace: true })
+}
+
 const user = useLogtoUser()
 const isAuthenticated = computed(() => Boolean(user?.value))
 
@@ -98,10 +105,15 @@ const handleSignIn = () => {
   signIn('/chat')
 }
 
-// Optional: auto-redirect when already logged in
-watchEffect(() => {
-  if (isAuthenticated.value) navigateTo('/chat')
-})
+// Watch for client-side authentication changes
+// Only watch if user is a valid reactive source
+if (user) {
+  watch(user, (newUser) => {
+    if (newUser) {
+      navigateTo('/chat', { replace: true })
+    }
+  })
+}
 </script>
 
 <style scoped>

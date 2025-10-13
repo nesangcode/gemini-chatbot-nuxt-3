@@ -32,6 +32,36 @@ export default defineLazyEventHandler(async () => {
           message: 'Messages array is required and must not be empty',
         });
       }
+      
+      console.log('[Chat API] Received', messages.length, 'messages')
+      
+      // Clean up messages: filter out metadata parts (step-start, step-finish, etc)
+      const cleanedMessages = messages.map(msg => {
+        if (msg.parts && Array.isArray(msg.parts)) {
+          // Filter out non-content parts
+          const contentParts = msg.parts.filter((part: any) => 
+            part.type !== 'step-start' && 
+            part.type !== 'step-finish'
+          )
+          return { ...msg, parts: contentParts }
+        }
+        if (Array.isArray(msg.content)) {
+          // Filter out non-content parts from content array too
+          const contentParts = msg.content.filter((part: any) => 
+            part.type !== 'step-start' && 
+            part.type !== 'step-finish'
+          )
+          return { ...msg, content: contentParts }
+        }
+        return msg
+      })
+      
+      console.log('[Chat API] Last 3 cleaned messages:', JSON.stringify(cleanedMessages.slice(-3).map(m => ({
+        role: m.role,
+        contentType: typeof m.content,
+        isArray: Array.isArray(m.content),
+        content: Array.isArray(m.content) ? m.content : (typeof m.content === 'string' ? m.content.substring(0, 100) : m.content)
+      })), null, 2))
 
       if (!sessionId || typeof sessionId !== 'string') {
         throw createError({
@@ -53,10 +83,25 @@ export default defineLazyEventHandler(async () => {
       }
 
       // Transform messages to AI SDK format
-      const transformedMessages = await Promise.all(messages.map(transformMessage));
+      const transformedMessages = await Promise.all(cleanedMessages.map(transformMessage));
 
-      const limitedMessages = transformedMessages.slice(-20)
-      console.log(`[Chat API] Processing ${limitedMessages.length} messages`)
+      // Filter out empty messages (blank responses cause concatenation)
+      const filteredMessages = transformedMessages.filter(msg => {
+        if (typeof msg.content === 'string') {
+          return msg.content.trim().length > 0
+        }
+        if (Array.isArray(msg.content)) {
+          return msg.content.some((part: any) => {
+            if (part.type === 'text') return part.text?.trim().length > 0
+            return true // Keep non-text parts (images, etc)
+          })
+        }
+        return true
+      })
+
+      const limitedMessages = filteredMessages.slice(-20)
+      console.log(`[Chat API] Processing ${limitedMessages.length} messages (filtered from ${transformedMessages.length})`)
+      console.log('[Chat API] Last 3 messages:', JSON.stringify(limitedMessages.slice(-3), null, 2))
 
       let savedMessageIds: { userMessageId: string; assistantMessageId: string } | null = null
       let result
@@ -69,7 +114,7 @@ export default defineLazyEventHandler(async () => {
           messages: limitedMessages,
           async onFinish({ text }) {
             try {
-              const lastUserMessage = messages[messages.length - 1]
+              const lastUserMessage = cleanedMessages[cleanedMessages.length - 1]
               const hasImages = body?.hasImages || false
               const hasPdfs = body?.hasPdfs || false
               const images = body?.images || []
@@ -87,19 +132,30 @@ export default defineLazyEventHandler(async () => {
                 data: { content: text, role: 'assistant', sessionId }
               })
               
+              // Update session's updatedAt timestamp
+              await prisma.chatSession.update({
+                where: { id: sessionId },
+                data: { updatedAt: new Date() }
+              })
+              
               savedMessageIds = {
                 userMessageId: userMessage.id,
                 assistantMessageId: assistantMessage.id
               }
               
-              // Auto-rename for first text-only message
+              // Auto-rename for first text-only message (await to complete before client refresh)
               const messageCount = await prisma.message.count({ where: { sessionId } })
               if (messageCount === 2 && !hasImages && !hasPdfs) {
-                autoRenameSession({
-                  sessionId,
-                  userId: user.id,
-                  apiKey: runtimeConfig.geminiApiKey
-                }).catch(() => {})
+                try {
+                  await autoRenameSession({
+                    sessionId,
+                    userId: user.id,
+                    apiKey: runtimeConfig.geminiApiKey
+                  })
+                  console.log('[Chat API] Auto-rename completed successfully')
+                } catch (error) {
+                  console.error('[Chat API] Auto-rename failed:', error)
+                }
               }
             } catch (error) {
               console.error('[Chat API] Error saving messages:', error)

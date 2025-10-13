@@ -4,6 +4,7 @@ import { requireAuth } from '../../utils/auth'
 export default defineEventHandler(async (event) => {
   try {
     const user = await requireAuth(event)
+    console.log('[Sessions POST] Creating session for user:', user.id)
     const body = await readBody(event).catch(() => ({}))
     const model = body?.model || 'gemini-2.5-flash'
 
@@ -13,6 +14,8 @@ export default defineEventHandler(async (event) => {
         model: model
       }
     })
+    
+    console.log('[Sessions POST] Created session:', newSession.id)
 
     return {
       success: true,

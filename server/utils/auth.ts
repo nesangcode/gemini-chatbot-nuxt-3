@@ -11,8 +11,11 @@ export async function getUserFromSession(event: H3Event) {
     const logtoUser = event.context.logtoUser
     
     if (!logtoUser?.sub) {
+      // User is not authenticated - this is normal for unauthenticated requests
       return null
     }
+    
+    console.log('[Auth] Authenticated user with logtoId:', logtoUser.sub)
     
     // Find or create user in database
     let user = await prisma.user.findUnique({
@@ -20,6 +23,7 @@ export async function getUserFromSession(event: H3Event) {
     })
     
     if (!user) {
+      console.log('[Auth] Creating new user for logtoId:', logtoUser.sub)
       // Create user if doesn't exist
       user = await prisma.user.create({
         data: {
@@ -29,6 +33,7 @@ export async function getUserFromSession(event: H3Event) {
       })
     }
     
+    console.log('[Auth] Found/created user ID:', user.id, 'for logtoId:', user.logtoId)
     return user
   } catch (error) {
     console.error('Error in getUserFromSession:', error)

@@ -117,7 +117,7 @@ export async function autoRenameSession(params: {
   let text: string | undefined;
   try {
     const result = await generateText({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-2.5-flash'),
       prompt: `Buat judul singkat (maks 50 karakter) yang menggambarkan percakapan berikut. Hanya kembalikan judul saja tanpa tanda kutip atau penjelasan tambahan.\n\n${conversationContext}`,
       temperature: 0.4
     });

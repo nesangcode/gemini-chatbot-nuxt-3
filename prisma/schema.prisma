@@ -28,6 +28,7 @@ model ChatSession {
   title     String      @default("New Chat")
   model     String      @default("gemini-2.5-flash")
   createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   userId    String
 
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)

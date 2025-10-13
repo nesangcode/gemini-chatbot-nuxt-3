@@ -4,6 +4,7 @@ import { requireAuth } from '../../utils/auth'
 export default defineEventHandler(async (event) => {
   try {
     const user = await requireAuth(event)
+    console.log('[Sessions GET] User ID:', user.id)
     
     // Parse query parameters for pagination
     const query = getQuery(event)
@@ -12,14 +13,28 @@ export default defineEventHandler(async (event) => {
     
     // Build the query with pagination
     const whereClause: any = { userId: user.id }
+    console.log('[Sessions GET] Cursor:', cursor)
     
-    // If cursor is provided, filter sessions created before the cursor
+    // If cursor is provided, parse it (format: "timestamp_id")
     if (cursor) {
-      whereClause.id = {
-        lt: cursor
+      try {
+        const [timestamp, lastId] = cursor.split('_')
+        // Filter: (updatedAt < timestamp) OR (updatedAt = timestamp AND id < lastId)
+        whereClause.OR = [
+          { updatedAt: { lt: new Date(timestamp) } },
+          { 
+            AND: [
+              { updatedAt: new Date(timestamp) },
+              { id: { lt: lastId } }
+            ]
+          }
+        ]
+      } catch (e) {
+        console.error('[Sessions GET] Invalid cursor format:', cursor)
       }
     }
 
+    // Fetch sessions sorted by updatedAt (DB now handles this efficiently)
     const rawSessions = await prisma.chatSession.findMany({
       where: whereClause,
       select: {
@@ -27,53 +42,33 @@ export default defineEventHandler(async (event) => {
         title: true,
         model: true,
         createdAt: true,
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { createdAt: true }
-        }
+        updatedAt: true
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [
+        { updatedAt: 'desc' }, // Primary: Sort by last update time descending
+        { id: 'desc' } // Secondary: Ensure consistent order for same timestamp
+      ],
       take: limit + 1 // Fetch one extra to check if there are more
     })
+    
+    console.log('[Sessions GET] Found sessions:', rawSessions.length)
     
     // Check if there are more results
     const hasMore = rawSessions.length > limit
     const sessionsToReturn = hasMore ? rawSessions.slice(0, limit) : rawSessions
-
-    type RawSession = typeof rawSessions[number]
-
-    type SessionWithActivity = {
-      id: string
-      title: string
-      model: string
-      createdAt: Date
-      updatedAt: Date
-    }
-
-    const sessions = sessionsToReturn
-      .map((session: RawSession): SessionWithActivity => {
-        const lastActivity = session.messages[0]?.createdAt ?? session.createdAt
-
-        return {
-          id: session.id,
-          title: session.title,
-          model: session.model,
-          createdAt: session.createdAt,
-          updatedAt: lastActivity
-        }
-      })
-      .sort((a: SessionWithActivity, b: SessionWithActivity) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .map((session: SessionWithActivity) => ({
-        id: session.id,
-        title: session.title,
-        model: session.model,
-        createdAt: session.createdAt.toISOString(),
-        updatedAt: session.updatedAt.toISOString()
-      }))
     
-    // Get the cursor for the next page (last session id)
-    const nextCursor = sessions.length > 0 ? sessions[sessions.length - 1].id : null
+    const sessions = sessionsToReturn.map(session => ({
+      id: session.id,
+      title: session.title,
+      model: session.model,
+      createdAt: session.createdAt.toISOString(),
+      updatedAt: session.updatedAt.toISOString()
+    }))
+    
+    // Cursor is composite: "timestamp_id" of the last session for next page
+    const nextCursor = sessions.length > 0 
+      ? `${sessions[sessions.length - 1].updatedAt}_${sessions[sessions.length - 1].id}`
+      : null
 
     return {
       success: true,
