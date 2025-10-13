@@ -114,13 +114,31 @@ export async function autoRenameSession(params: {
   const google = createGoogleGenerativeAI({ apiKey })
   const conversationContext = buildConversationContext(session.messages)
 
-  const { text } = await generateText({
-    model: google('gemini-2.0-flash'),
-    prompt: `Buat judul singkat (maks 50 karakter) yang menggambarkan percakapan berikut. Hanya kembalikan judul saja tanpa tanda kutip atau penjelasan tambahan.\n\n${conversationContext}`,
-    temperature: 0.4
-  })
+  let text: string | undefined;
+  try {
+    const result = await generateText({
+      model: google('gemini-2.0-flash'),
+      prompt: `Buat judul singkat (maks 50 karakter) yang menggambarkan percakapan berikut. Hanya kembalikan judul saja tanpa tanda kutip atau penjelasan tambahan.\n\n${conversationContext}`,
+      temperature: 0.4
+    });
+    text = result.text;
+  } catch (apiError: any) {
+    console.error('[Auto-rename] Gemini API error:', apiError);
+    
+    // Handle network errors - use fallback title
+    if (apiError.code === 'ENOTFOUND' || apiError.code === 'ECONNREFUSED' || apiError.code === 'ETIMEDOUT') {
+      console.warn('[Auto-rename] Network error, using fallback title');
+      text = `Percakapan ${new Date().toLocaleDateString('id-ID')}`;
+    } else if (apiError.status === 429) {
+      console.warn('[Auto-rename] Rate limit exceeded, using fallback title');
+      text = `Percakapan ${new Date().toLocaleDateString('id-ID')}`;
+    } else {
+      // For other errors, re-throw
+      throw apiError;
+    }
+  }
 
-  const newTitle = sanitizeGeneratedTitle(text ?? '')
+  const newTitle = sanitizeGeneratedTitle(text || '')
 
   const [updatedSession, latestMessage] = await prisma.$transaction([
     prisma.chatSession.update({

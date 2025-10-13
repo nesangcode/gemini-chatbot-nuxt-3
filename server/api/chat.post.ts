@@ -64,54 +64,87 @@ export default defineLazyEventHandler(async () => {
 
       console.log(`[Chat API] Processing ${limitedMessages.length} of ${messages.length} messages for user ${user.id}`);
 
-      const result = await streamText({
-        model: google('gemini-2.0-flash'),
-        messages: limitedMessages,
-        async onFinish({ text, toolCalls, toolResults }) {
-          try {
-            const lastUserMessage = messages[messages.length - 1];
-            const userMessageContent = lastUserMessage.parts?.[0]?.text || lastUserMessage.content || '';
+      let result;
+      try {
+        result = await streamText({
+          model: google('gemini-2.0-flash'),
+          messages: limitedMessages,
+          async onFinish({ text, toolCalls, toolResults }) {
+            try {
+              const lastUserMessage = messages[messages.length - 1];
+              const userMessageContent = lastUserMessage.parts?.[0]?.text || lastUserMessage.content || '';
 
-            await prisma.message.createMany({
-              data: [
-                {
-                  content: userMessageContent,
-                  role: 'user',
-                  sessionId,
-                },
-                {
-                  content: text,
-                  role: 'assistant',
-                  sessionId,
-                },
-              ],
-            });
-            console.log(`[Chat API] Successfully saved messages for user ${user.id}`);
-            
-            // Check if this is the first message exchange (2 messages total)
-            const messageCount = await prisma.message.count({
-              where: { sessionId }
-            });
-            
-            if (messageCount === 2) {
-              // Trigger auto-rename in the background for first message
-              console.log(`[Chat API] Triggering auto-rename for session ${sessionId}`);
-              autoRenameSession({
-                sessionId,
-                userId: user.id,
-                apiKey: runtimeConfig.geminiApiKey
-              }).then((result) => {
-                console.log(`[Chat API] Session ${sessionId} auto-renamed to: "${result.title}"`);
-              }).catch((error) => {
-                console.error(`[Chat API] Error auto-renaming session ${sessionId}:`, error);
+              await prisma.message.createMany({
+                data: [
+                  {
+                    content: userMessageContent,
+                    role: 'user',
+                    sessionId,
+                  },
+                  {
+                    content: text,
+                    role: 'assistant',
+                    sessionId,
+                  },
+                ],
               });
+              console.log(`[Chat API] Successfully saved messages for user ${user.id}`);
+              
+              // Check if this is the first message exchange (2 messages total)
+              const messageCount = await prisma.message.count({
+                where: { sessionId }
+              });
+              
+              if (messageCount === 2) {
+                // Trigger auto-rename in the background for first message
+                console.log(`[Chat API] Triggering auto-rename for session ${sessionId}`);
+                autoRenameSession({
+                  sessionId,
+                  userId: user.id,
+                  apiKey: runtimeConfig.geminiApiKey
+                }).then((result) => {
+                  console.log(`[Chat API] Session ${sessionId} auto-renamed to: "${result.title}"`);
+                }).catch((error) => {
+                  console.error(`[Chat API] Error auto-renaming session ${sessionId}:`, error);
+                });
+              }
+            } catch (error) {
+              console.error('[Chat API] Error saving messages to database:', error);
+              // Don't throw here - we still want to return the AI response even if DB save fails
             }
-          } catch (error) {
-            console.error('[Chat API] Error saving messages to database:', error);
-            // Don't throw here - we still want to return the AI response even if DB save fails
-          }
-        },
-      });
+          },
+        });
+      } catch (apiError: any) {
+        console.error('[Chat API] Gemini API error:', apiError);
+        
+        // Handle specific Gemini API errors
+        if (apiError.code === 'ENOTFOUND' || apiError.code === 'ECONNREFUSED' || apiError.code === 'ETIMEDOUT') {
+          throw createError({
+            statusCode: 503,
+            message: 'Tidak dapat terhubung ke layanan Gemini AI. Silakan coba lagi nanti.',
+          });
+        }
+        
+        if (apiError.status === 429) {
+          throw createError({
+            statusCode: 429,
+            message: 'Terlalu banyak permintaan. Silakan tunggu beberapa saat.',
+          });
+        }
+        
+        if (apiError.status === 401 || apiError.status === 403) {
+          throw createError({
+            statusCode: 500,
+            message: 'Konfigurasi API key tidak valid.',
+          });
+        }
+        
+        // Generic API error
+        throw createError({
+          statusCode: 502,
+          message: 'Layanan AI sedang tidak tersedia. Silakan coba lagi.',
+        });
+      }
 
       return result.toTextStreamResponse();
     } catch (error: any) {
@@ -122,6 +155,14 @@ export default defineLazyEventHandler(async () => {
         throw error; // Re-throw createError errors
       }
 
+      // Handle network errors
+      if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+        throw createError({
+          statusCode: 503,
+          message: 'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.',
+        });
+      }
+      
       // Handle API errors
       if (error.message?.includes('API key')) {
         throw createError({

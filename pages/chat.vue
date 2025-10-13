@@ -13,6 +13,11 @@ const { signOut, user } = useLogtoSession()
 const currentSessionId = ref(null)
 const currentSession = ref(null)
 
+// Error states
+const sidebarError = ref(null)
+const messagesError = ref(null)
+const chatError = ref(null)
+
 // Session list pagination
 const sessionsPagination = ref({
   limit: 20,
@@ -23,9 +28,67 @@ const sessionsPagination = ref({
 
 const chatSessions = ref([])
 
+// Helper function to detect and format network errors
+function handleNetworkError(error, context = 'operation') {
+  console.error(`Error in ${context}:`, error)
+  
+  // Check for network-related errors
+  if (!error) {
+    return {
+      type: 'unknown',
+      message: `Terjadi kesalahan saat ${context}`,
+      canRetry: true
+    }
+  }
+  
+  // Network timeout or connection refused
+  if (error.name === 'TypeError' || error.message?.includes('fetch') || error.message?.includes('network')) {
+    return {
+      type: 'network',
+      message: 'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.',
+      canRetry: true
+    }
+  }
+  
+  // Timeout errors
+  if (error.name === 'TimeoutError' || error.message?.includes('timeout')) {
+    return {
+      type: 'timeout',
+      message: 'Koneksi timeout. Server membutuhkan waktu terlalu lama untuk merespons.',
+      canRetry: true
+    }
+  }
+  
+  // Server errors (5xx)
+  if (error.statusCode >= 500) {
+    return {
+      type: 'server',
+      message: 'Server sedang mengalami masalah. Silakan coba lagi nanti.',
+      canRetry: true
+    }
+  }
+  
+  // Client errors (4xx)
+  if (error.statusCode >= 400 && error.statusCode < 500) {
+    return {
+      type: 'client',
+      message: error.message || error.statusMessage || 'Permintaan tidak valid.',
+      canRetry: false
+    }
+  }
+  
+  // Generic error
+  return {
+    type: 'unknown',
+    message: error.message || error.statusMessage || `Terjadi kesalahan saat ${context}`,
+    canRetry: true
+  }
+}
+
 async function fetchChatSessions() {
   try {
     sessionsPagination.value.loading = true
+    sidebarError.value = null
     const headers = useRequestHeaders(['cookie'])
     const response = await $fetch('/api/chat/sessions', { 
       headers,
@@ -44,7 +107,7 @@ async function fetchChatSessions() {
       }
     }
   } catch (error) {
-    console.error('Error fetching sessions:', error)
+    sidebarError.value = handleNetworkError(error, 'mengambil daftar chat')
     sessionsPagination.value.loading = false
   }
 }
@@ -93,14 +156,20 @@ const chat = new Chat({
         }
       } catch (error) {
         console.error('[Chat] Error reloading messages:', error)
+        messagesError.value = handleNetworkError(error, 'memuat ulang pesan')
       }
     }
     
     // Refresh chat sessions to update timestamps and titles
-    await fetchChatSessions()
-    // Update current session with refreshed data
-    if (currentSessionId.value) {
-      currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
+    try {
+      await fetchChatSessions()
+      // Update current session with refreshed data
+      if (currentSessionId.value) {
+        currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
+      }
+    } catch (error) {
+      // Error already handled in fetchChatSessions
+      console.error('[Chat] Error refreshing sessions after message:', error)
     }
     
     console.log('[Chat] Messages after refresh:', chat.messages.length)
@@ -177,13 +246,14 @@ async function loadMoreSessions() {
       }
     }
   } catch (error) {
-    console.error('Error loading more sessions:', error)
+    sidebarError.value = handleNetworkError(error, 'memuat lebih banyak chat')
     sessionsPagination.value.loading = false
   }
 }
 
 async function createNewChat() {
   try {
+    sidebarError.value = null
     const response = await $fetch('/api/chat/sessions', {
       method: 'POST'
     })
@@ -193,7 +263,7 @@ async function createNewChat() {
       await selectChatSession(response.data.id)
     }
   } catch (error) {
-    console.error('Error creating new chat:', error)
+    sidebarError.value = handleNetworkError(error, 'membuat chat baru')
   }
 }
 
@@ -211,6 +281,7 @@ async function selectChatSession(sessionId) {
       hasMore: false,
       loading: true
     }
+    messagesError.value = null
     
     const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=20`)
     
@@ -228,7 +299,7 @@ async function selectChatSession(sessionId) {
       chat.messages.splice(0, chat.messages.length)
     }
   } catch (error) {
-    console.error('Error fetching messages:', error)
+    messagesError.value = handleNetworkError(error, 'memuat pesan')
     chat.messages.splice(0, chat.messages.length)
     messagesPagination.value.loading = false
   }
@@ -260,7 +331,7 @@ async function loadMoreMessages() {
       }
     }
   } catch (error) {
-    console.error('Error loading more messages:', error)
+    messagesError.value = handleNetworkError(error, 'memuat lebih banyak pesan')
     messagesPagination.value.loading = false
   }
 }
@@ -271,6 +342,7 @@ async function deleteSession(sessionId) {
   }
   
   try {
+    sidebarError.value = null
     await $fetch(`/api/chat/sessions/${sessionId}`, {
       method: 'DELETE'
     })
@@ -283,6 +355,7 @@ async function deleteSession(sessionId) {
       currentSessionId.value = null
       currentSession.value = null
       chat.messages.splice(0, chat.messages.length)
+      messagesError.value = null
       messagesPagination.value = {
         total: 0,
         limit: 20,
@@ -293,7 +366,7 @@ async function deleteSession(sessionId) {
       }
     }
   } catch (error) {
-    console.error('Error deleting session:', error)
+    sidebarError.value = handleNetworkError(error, 'menghapus chat')
   }
 }
 
@@ -304,6 +377,7 @@ async function handleSendMessage() {
 
   console.log('[Chat] Sending message, current messages:', chat.messages.length)
   isChatStreaming.value = true
+  chatError.value = null
 
   try {
     await chat.sendMessage(
@@ -317,7 +391,7 @@ async function handleSendMessage() {
     console.log('[Chat] Message sent, messages now:', chat.messages.length)
     input.value = ''
   } catch (error) {
-    console.error('[Chat] Error sending message:', error)
+    chatError.value = handleNetworkError(error, 'mengirim pesan')
   } finally {
     isChatStreaming.value = false
 
@@ -443,6 +517,33 @@ function onInput(event) {
         </button>
       </div>
 
+      <!-- Sidebar Error Alert -->
+      <div v-if="sidebarError" class="mx-3 mt-3 bg-red-50 border border-red-200 rounded-lg p-3 animate-fade-in">
+        <div class="flex items-start gap-2">
+          <svg class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+          </svg>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-red-800">{{ sidebarError.message }}</p>
+            <button
+              v-if="sidebarError.canRetry"
+              @click="fetchChatSessions"
+              class="mt-2 text-xs font-medium text-red-700 hover:text-red-800 underline"
+            >
+              Coba Lagi
+            </button>
+          </div>
+          <button
+            @click="sidebarError = null"
+            class="flex-shrink-0 text-red-400 hover:text-red-600"
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
       <!-- Chat Sessions List -->
       <div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
         <div
@@ -513,7 +614,57 @@ function onInput(event) {
 
       <!-- Messages -->
       <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-        <!-- Error Alert -->
+        <!-- Messages Error Alert -->
+        <div v-if="messagesError" class="bg-red-50 border border-red-200 rounded-lg p-4 animate-fade-in">
+          <div class="flex items-start gap-3">
+            <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+            </svg>
+            <div class="flex-1">
+              <p class="font-semibold text-red-800">Kesalahan Jaringan</p>
+              <p class="text-sm text-red-700 mt-1">{{ messagesError.message }}</p>
+              <button
+                v-if="messagesError.canRetry && currentSessionId"
+                @click="selectChatSession(currentSessionId)"
+                class="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Coba Lagi
+              </button>
+            </div>
+            <button
+              @click="messagesError = null"
+              class="flex-shrink-0 text-red-400 hover:text-red-600"
+            >
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Error Alert -->
+        <div v-if="chatError" class="bg-red-50 border border-red-200 rounded-lg p-4 animate-fade-in">
+          <div class="flex items-start gap-3">
+            <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+            </svg>
+            <div class="flex-1">
+              <p class="font-semibold text-red-800">Gagal Mengirim Pesan</p>
+              <p class="text-sm text-red-700 mt-1">{{ chatError.message }}</p>
+              <p v-if="chatError.canRetry" class="text-xs text-red-600 mt-2">Pesan Anda tidak terkirim. Silakan coba kirim ulang.</p>
+            </div>
+            <button
+              @click="chatError = null"
+              class="flex-shrink-0 text-red-400 hover:text-red-600"
+            >
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- AI SDK Error Alert -->
         <div v-if="chat.error" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg shadow-md relative animate-fade-in">
           <div class="flex">
             <div class="py-1"><svg class="fill-current h-6 w-6 text-red-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zM10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm-1-5a1 1 0 0 1 1-1h2a1 1 0 0 1 0 2h-2a1 1 0 0 1-1-1zm-1-4a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H9a1 1 0 0 1-1-1z"/></svg></div>

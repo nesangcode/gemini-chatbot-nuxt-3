@@ -40,6 +40,8 @@ export default defineEventHandler(async (event) => {
     const hasMore = rawSessions.length > limit
     const sessionsToReturn = hasMore ? rawSessions.slice(0, limit) : rawSessions
 
+    type RawSession = typeof rawSessions[number]
+
     type SessionWithActivity = {
       id: string
       title: string
@@ -48,7 +50,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const sessions = sessionsToReturn
-      .map((session): SessionWithActivity => {
+      .map((session: RawSession): SessionWithActivity => {
         const lastActivity = session.messages[0]?.createdAt ?? session.createdAt
 
         return {
@@ -83,6 +85,22 @@ export default defineEventHandler(async (event) => {
 
     if (error.statusCode) {
       throw error
+    }
+
+    // Handle database connection errors
+    if (error.code === 'P1001' || error.code === 'P1002' || error.code === 'P1017') {
+      throw createError({
+        statusCode: 503,
+        statusMessage: 'Database connection error. Please try again later.'
+      })
+    }
+
+    // Handle network errors
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      throw createError({
+        statusCode: 503,
+        statusMessage: 'Network error. Please check your connection.'
+      })
     }
 
     throw createError({

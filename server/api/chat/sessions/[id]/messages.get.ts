@@ -40,6 +40,8 @@ export default defineEventHandler(async (event) => {
       }
     })
 
+    type MessageResult = typeof messages[number]
+
     // Get total count for pagination metadata
     const totalCount = await prisma.message.count({
       where: { sessionId }
@@ -55,7 +57,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
-      data: messages.map((message) => ({
+      data: messages.map((message: MessageResult) => ({
         id: message.id,
         content: message.content,
         role: message.role,
@@ -74,6 +76,22 @@ export default defineEventHandler(async (event) => {
 
     if (error.statusCode) {
       throw error
+    }
+
+    // Handle database connection errors
+    if (error.code === 'P1001' || error.code === 'P1002' || error.code === 'P1017') {
+      throw createError({
+        statusCode: 503,
+        statusMessage: 'Database connection error. Please try again later.'
+      })
+    }
+
+    // Handle network errors
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      throw createError({
+        statusCode: 503,
+        statusMessage: 'Network error. Please check your connection.'
+      })
     }
 
     throw createError({
