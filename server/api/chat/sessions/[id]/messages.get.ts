@@ -20,7 +20,9 @@ export default defineEventHandler(async (event) => {
     const cursor = query.cursor as string
 
     let whereClause: any = { sessionId }
-    let orderBy: any = { createdAt: 'asc' }
+    // Order by descending to get newest messages first, then reverse in client
+    // This ensures with limit=20, we get the 20 most recent messages
+    let orderBy: any = { createdAt: 'desc' }
 
     // If cursor is provided, use cursor-based pagination
     if (cursor) {
@@ -57,12 +59,13 @@ export default defineEventHandler(async (event) => {
 
     return {
       success: true,
+      // Reverse to show oldest-to-newest in UI (since we fetched desc)
       data: messages.map((message: MessageResult) => ({
         id: message.id,
         content: message.content,
         role: message.role,
         createdAt: message.createdAt.toISOString()
-      })),
+      })).reverse(),
       pagination: {
         total: totalCount,
         limit,

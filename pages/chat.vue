@@ -1,6 +1,7 @@
 <script setup>
-import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon, SquareIcon, ImagePlusIcon, XIcon } from 'lucide-vue-next'
+import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon, SquareIcon, ImagePlusIcon, XIcon, FileTextIcon } from 'lucide-vue-next'
 import { Chat } from '@ai-sdk/vue'
+import { TextStreamChatTransport } from 'ai';
 
 definePageMeta({
   middleware: 'auth'
@@ -116,75 +117,134 @@ async function fetchChatSessions() {
 // Initial fetch
 await fetchChatSessions()
 
+console.log('[Chat] Page initialized, setting up chat composable')
+
 // UI refs
 const messagesEndRef = ref(null)
 const inputRef = ref(null)
 
-// Composables
-const chat = new Chat({
-  api: '/api/chat',
-  streamProtocol: 'text',
-  body: computed(() => ({
-    sessionId: currentSessionId.value
-  })),
-  onFinish: async (message) => {
-    console.log('[Chat] onFinish called with message:', message)
-    console.log('[Chat] Current messages count:', chat.messages.length)
+// State for tracking chat completion
+const isChatStreaming = ref(false)
+const finishHandlerExecuting = ref(false)
+
+/**
+ * Architecture: Reactive Streaming with Optimistic Updates
+ * 
+ * Flow:
+ * 1. User sends message → Chat composable streams AI response chunk-by-chunk
+ * 2. Vue reactivity updates UI in real-time as chunks arrive
+ * 3. Backend saves to DB asynchronously during/after streaming
+ * 4. Frontend TRUSTS reactive state - no refetch needed
+ * 5. Only refresh session list for metadata (timestamps, auto-rename titles)
+ * 
+ * Benefits:
+ * - No race conditions or arbitrary delays
+ * - Faster UX (no unnecessary network calls)
+ * - True reactive streaming experience
+ * - DB as source of truth on page load/session switch
+ */
+
+// Function to handle chat completion
+async function handleChatFinish() {
+  // Prevent double execution
+  if (finishHandlerExecuting.value) {
+    return
+  }
+  
+  finishHandlerExecuting.value = true
+  
+  try {
+    // Trust Vue reactivity - messages are already up-to-date from streaming
+    // No need to refetch from database, it's already persisted on backend
     
-    // Wait a bit for server to finish saving to database
-    await new Promise(resolve => setTimeout(resolve, 500))
-    
-    // Reload messages from database to ensure sync
+    // Only refresh session list for timestamp/title updates (e.g., auto-rename)
     if (currentSessionId.value) {
-      try {
-        const response = await $fetch(`/api/chat/sessions/${currentSessionId.value}/messages?limit=50`)
-        if (response?.success && response?.data) {
-          // Replace messages with fresh data from DB
-          chat.messages.splice(0, chat.messages.length, ...response.data.map(mapApiMessageToUiMessage))
-          console.log('[Chat] Reloaded messages from DB:', chat.messages.length)
-          
-          // If this is the first exchange (2 messages), schedule additional refresh for auto-rename
-          if (response.data.length === 2) {
-            console.log('[Chat] First message detected, scheduling additional refresh for auto-rename')
-            setTimeout(async () => {
-              await fetchChatSessions()
-              if (currentSessionId.value) {
-                currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
-                console.log('[Chat] Auto-rename title updated:', currentSession.value?.title)
-              }
-            }, 3000) // Wait 3 seconds for auto-rename to complete
+      // For first message, schedule refresh to catch auto-rename
+      if (chat.messages.length === 2) {
+        // First message - schedule refresh to catch auto-rename
+        setTimeout(async () => {
+          await fetchChatSessions()
+          if (currentSessionId.value) {
+            currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
           }
+        }, 3000) // Wait 3 seconds for auto-rename to complete
+      } else {
+        // For subsequent messages, just update session timestamp
+        await fetchChatSessions()
+        if (currentSessionId.value) {
+          currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
         }
-      } catch (error) {
-        console.error('[Chat] Error reloading messages:', error)
-        messagesError.value = handleNetworkError(error, 'memuat ulang pesan')
       }
     }
-    
-    // Refresh chat sessions to update timestamps and titles
-    try {
-      await fetchChatSessions()
-      // Update current session with refreshed data
-      if (currentSessionId.value) {
-        currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
-      }
-    } catch (error) {
-      // Error already handled in fetchChatSessions
-      console.error('[Chat] Error refreshing sessions after message:', error)
+  } catch (error) {
+    // Don't set error state, non-critical failure
+  } finally {
+    // Reset the flag after a delay to allow for next message
+    setTimeout(() => {
+      finishHandlerExecuting.value = false
+    }, 1000)
+  }
+}
+
+// Composables
+// Using Chat class with text protocol matching backend's toTextStreamResponse()
+const chat = new Chat({
+    transport: new TextStreamChatTransport({
+      api: '/api/chat',
+    }),
+  body: computed(() => ({ 
+    sessionId: currentSessionId.value 
+  })),
+  credentials: 'include',
+  onFinish: async (options) => {
+    // Handle different completion scenarios
+    if (options.isError) {
+      console.error('[Chat] Stream finished with error')
+      chatError.value = 'Terjadi kesalahan saat menerima respons'
+    } else if (options.isDisconnect) {
+      console.error('[Chat] Stream disconnected')
+      chatError.value = 'Koneksi terputus. Silakan coba lagi.'
+    } else if (options.isAbort) {
+      console.log('[Chat] Stream aborted by user')
     }
     
-    console.log('[Chat] Messages after refresh:', chat.messages.length)
+    // Always call handleChatFinish to reset state
+    await handleChatFinish()
+  },
+  onError: (error) => {
+    console.error('[Chat] onError:', error)
+    chatError.value = handleNetworkError(error, 'mengirim pesan')
   }
 })
 
-const isChatStreaming = ref(false)
+// Chat composable initialized
+
 const isChatBusy = computed(() => chat.isLoading || isChatStreaming.value)
+
+// Watch for when chat.isLoading becomes false to detect stream completion
+// This is a fallback in case onFinish doesn't fire reliably with text protocol
+watch(() => chat.isLoading, async (newLoading, oldLoading) => {
+  // Detect when loading just finished (was true, now false)
+  if (oldLoading === true && newLoading === false && isChatStreaming.value && !finishHandlerExecuting.value) {
+    isChatStreaming.value = false
+    // Slight delay to ensure onFinish has a chance to fire first
+    await new Promise(resolve => setTimeout(resolve, 100))
+    // Only call if onFinish hasn't been triggered yet
+    if (!finishHandlerExecuting.value) {
+      console.log('[Chat] onFinish did not fire, executing handleChatFinish from watch')
+      await handleChatFinish()
+    }
+  }
+})
 
 const input = ref('')
 const selectedImages = ref([])
+const selectedPdfs = ref([])
 const fileInputRef = ref(null)
+const pdfInputRef = ref(null)
 const isUploadingImages = ref(false)
-const canSendMessage = computed(() => (!!input.value.trim() || selectedImages.value.length > 0) && !!currentSessionId.value && !isChatBusy.value && !isUploadingImages.value)
+const isUploadingPdfs = ref(false)
+const canSendMessage = computed(() => (!!input.value.trim() || selectedImages.value.length > 0 || selectedPdfs.value.length > 0) && !!currentSessionId.value && !isChatBusy.value && !isUploadingImages.value && !isUploadingPdfs.value)
 
 
 // Pagination state
@@ -202,6 +262,12 @@ function mapApiMessageToUiMessage(message) {
     // Try to parse content as JSON for multimodal messages
     const parsed = JSON.parse(message.content)
     if (parsed.type === 'multimodal') {
+      console.log('[Chat] Mapped multimodal message:', {
+        hasImages: !!parsed.images,
+        hasPdfs: !!parsed.pdfs,
+        imageCount: parsed.images?.length || 0,
+        pdfCount: parsed.pdfs?.length || 0
+      })
       return {
         ...message,
         content: parsed,
@@ -230,12 +296,7 @@ function mapApiMessageToUiMessage(message) {
 
 
 // Auto-scroll to bottom when new messages arrive
-watch(chat.messages, (newMessages, oldMessages) => {
-  console.log('[Chat] Messages changed:', {
-    old: oldMessages?.length || 0,
-    new: newMessages?.length || 0,
-    messages: newMessages
-  })
+watch(() => chat.messages, (newMessages, oldMessages) => {
   nextTick(() => {
     messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
   })
@@ -307,13 +368,21 @@ async function selectChatSession(sessionId) {
     }
     messagesError.value = null
     
+    // Fetch messages - API returns newest first (DESC), then reverses them
     const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=20`)
+    
+    console.log('[Chat] Messages API response:', {
+      success: response?.success,
+      messageCount: response?.data?.length,
+      messages: response?.data
+    })
     
     if (response?.success && response?.data) {
       // Use splice to maintain reactivity instead of direct assignment
       const mappedMessages = response.data.map(mapApiMessageToUiMessage)
       chat.messages.splice(0, chat.messages.length, ...mappedMessages)
       console.log('[Chat] Loaded messages for session:', sessionId, 'Count:', chat.messages.length)
+      console.log('[Chat] Mapped messages:', mappedMessages)
       messagesPagination.value = {
         ...messagesPagination.value,
         ...response.pagination,
@@ -397,23 +466,26 @@ async function deleteSession(sessionId) {
 }
 
 async function handleSendMessage() {
-  if ((!input.value.trim() && selectedImages.value.length === 0) || !currentSessionId.value || chat.isLoading || isChatStreaming.value) {
+  if ((!input.value.trim() && selectedImages.value.length === 0 && selectedPdfs.value.length === 0) || !currentSessionId.value || chat.isLoading || isChatStreaming.value) {
     return
   }
 
-  console.log('[Chat] Sending message, current messages:', chat.messages.length)
   isChatStreaming.value = true
   chatError.value = null
 
   try {
-    // Format message for AI SDK
+    // Format message following Vercel AI SDK standards
+    // https://sdk.vercel.ai/docs/reference/ai-sdk-ui/use-chat
     const hasImages = selectedImages.value.length > 0
+    const hasPdfs = selectedPdfs.value.length > 0
+    const hasAttachments = hasImages || hasPdfs
     
-    if (hasImages) {
-      // Multimodal message: content as array of parts
+    if (hasAttachments) {
+      // Multimodal message: content as array of parts (AI SDK CoreMessage format)
+      // https://sdk.vercel.ai/docs/reference/ai-sdk-core/core-message
       const contentParts = []
       
-      // Add text part if present
+      // Add text part if present (TextPart)
       if (input.value.trim()) {
         contentParts.push({
           type: 'text',
@@ -421,12 +493,24 @@ async function handleSendMessage() {
         })
       }
       
-      // Add image parts
+      // Add image parts (ImagePart) - AI SDK standard for images
       selectedImages.value.forEach((image) => {
         contentParts.push({
           type: 'image',
-          image: image.data,
+          image: image.data, // base64 string
           mimeType: image.mimeType
+        })
+      })
+      
+      // Add PDF parts as file type (will be converted to text on server)
+      // Note: Gemini doesn't support PDF natively, so we extract text server-side
+      selectedPdfs.value.forEach((pdf) => {
+        contentParts.push({
+          type: 'file',
+          data: pdf.data,
+          mimeType: pdf.mimeType,
+          name: pdf.name,
+          size: pdf.size
         })
       })
       
@@ -435,8 +519,10 @@ async function handleSendMessage() {
         {
           body: {
             sessionId: currentSessionId.value,
-            hasImages: true,
-            images: selectedImages.value
+            hasImages: hasImages,
+            images: selectedImages.value,
+            hasPdfs: hasPdfs,
+            pdfs: selectedPdfs.value
           },
         }
       )
@@ -447,19 +533,19 @@ async function handleSendMessage() {
         {
           body: {
             sessionId: currentSessionId.value,
-            hasImages: false
+            hasImages: false,
+            hasPdfs: false
           },
         }
       )
     }
-    console.log('[Chat] Message sent, messages now:', chat.messages.length)
     input.value = ''
     selectedImages.value = []
+    selectedPdfs.value = []
   } catch (error) {
     chatError.value = handleNetworkError(error, 'mengirim pesan')
+    isChatStreaming.value = false // Only reset on error
   } finally {
-    isChatStreaming.value = false
-
     // Refocus on input after sending
     nextTick(() => {
       inputRef.value?.focus()
@@ -559,6 +645,33 @@ function getMessageImages(message) {
   return []
 }
 
+function getMessagePdfs(message) {
+  if (!message) {
+    return []
+  }
+
+  // Check for multimodal content (from DB)
+  if (typeof message.content === 'object' && message.content?.type === 'multimodal') {
+    return message.content.pdfs || []
+  }
+
+  // Check for file parts in content array (real-time from AI SDK)
+  if (Array.isArray(message.content)) {
+    const pdfParts = message.content.filter(part => 
+      part.type === 'file' && part.mimeType === 'application/pdf'
+    )
+    // Map to expected format
+    return pdfParts.map(part => ({
+      data: part.data,
+      mimeType: part.mimeType,
+      name: part.name || 'document.pdf',
+      size: part.size || 0
+    }))
+  }
+
+  return []
+}
+
 function autoResize(event) {
   const textarea = event.target
   textarea.style.height = 'auto'
@@ -630,6 +743,78 @@ function removeImage(index) {
 
 function openFileInput() {
   fileInputRef.value?.click()
+}
+
+function openPdfInput() {
+  pdfInputRef.value?.click()
+}
+
+async function handlePdfSelect(event) {
+  const files = event.target.files
+  if (!files || files.length === 0) return
+
+  isUploadingPdfs.value = true
+  const fileArray = Array.from(files)
+  const validFiles = []
+
+  // Validate all files first
+  for (const file of fileArray) {
+    // Validate file type
+    if (file.type !== 'application/pdf') {
+      alert('Hanya file PDF yang diperbolehkan')
+      continue
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Ukuran file PDF maksimal 10MB')
+      continue
+    }
+
+    validFiles.push(file)
+  }
+
+  // Process all valid files
+  const uploadPromises = validFiles.map((file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const base64 = e.target.result
+        selectedPdfs.value.push({
+          data: base64.split(',')[1], // Remove data:application/pdf;base64, prefix
+          mimeType: 'application/pdf',
+          name: file.name,
+          size: file.size
+        })
+        resolve()
+      }
+      reader.onerror = () => reject(new Error('Gagal membaca file'))
+      reader.readAsDataURL(file)
+    })
+  })
+
+  try {
+    await Promise.all(uploadPromises)
+  } catch (error) {
+    console.error('Error uploading PDFs:', error)
+    alert('Terjadi kesalahan saat mengunggah PDF')
+  } finally {
+    isUploadingPdfs.value = false
+    // Reset input
+    event.target.value = ''
+  }
+}
+
+function removePdf(index) {
+  selectedPdfs.value.splice(index, 1)
+}
+
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes'
+  const k = 1024
+  const sizes = ['Bytes', 'KB', 'MB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
 </script>
@@ -876,6 +1061,29 @@ function openFileInput() {
               />
             </div>
             
+            <!-- PDFs -->
+            <div v-if="getMessagePdfs(message).length > 0" class="mb-3 flex flex-wrap gap-2">
+              <div
+                v-for="(pdf, idx) in getMessagePdfs(message)"
+                :key="'msg-pdf-' + idx"
+                :class="[
+                  'px-3 py-2 rounded-lg flex items-center gap-2',
+                  message.role === 'user' 
+                    ? 'bg-white/20 border border-white/30' 
+                    : 'bg-blue-50 border border-blue-200'
+                ]"
+              >
+                <FileTextIcon 
+                  class="w-4 h-4 flex-shrink-0" 
+                  :class="message.role === 'user' ? 'text-white' : 'text-blue-600'"
+                />
+                <span 
+                  class="text-sm font-medium truncate max-w-xs"
+                  :class="message.role === 'user' ? 'text-white' : 'text-blue-800'"
+                >{{ pdf.name }}</span>
+              </div>
+            </div>
+            
             <!-- Text Content -->
             <div 
               v-if="getMessageText(message)"
@@ -910,7 +1118,7 @@ function openFileInput() {
       <div class="bg-white/80 backdrop-blur-xl border-t border-gray-200/50 p-4 shadow-lg">
         <div class="max-w-4xl mx-auto">
           <!-- Image Previews -->
-          <div v-if="selectedImages.length > 0 || isUploadingImages" class="mb-3 flex flex-wrap gap-2">
+          <div v-if="selectedImages.length > 0 || isUploadingImages || selectedPdfs.length > 0 || isUploadingPdfs" class="mb-3 flex flex-wrap gap-2">
             <div
               v-for="(image, index) in selectedImages"
               :key="index"
@@ -932,10 +1140,34 @@ function openFileInput() {
             <div v-if="isUploadingImages" class="w-20 h-20 rounded-lg border-2 border-indigo-200 bg-indigo-50 flex items-center justify-center">
               <Loader2Icon class="w-6 h-6 text-indigo-600 animate-spin" />
             </div>
+            
+            <!-- PDF Previews -->
+            <div
+              v-for="(pdf, index) in selectedPdfs"
+              :key="'pdf-' + index"
+              class="relative group"
+            >
+              <div class="w-32 h-20 rounded-lg border-2 border-blue-200 bg-blue-50 p-2 flex flex-col items-center justify-center">
+                <FileTextIcon class="w-6 h-6 text-blue-600 mb-1" />
+                <p class="text-xs text-blue-800 font-medium truncate w-full text-center px-1">{{ pdf.name }}</p>
+                <p class="text-xs text-blue-600">{{ formatFileSize(pdf.size) }}</p>
+              </div>
+              <button
+                @click="removePdf(index)"
+                class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <XIcon class="w-3 h-3" />
+              </button>
+            </div>
+            
+            <!-- PDF Upload loading indicator -->
+            <div v-if="isUploadingPdfs" class="w-32 h-20 rounded-lg border-2 border-blue-200 bg-blue-50 flex items-center justify-center">
+              <Loader2Icon class="w-6 h-6 text-blue-600 animate-spin" />
+            </div>
           </div>
           
           <div class="flex gap-3 items-end">
-            <!-- Hidden file input -->
+            <!-- Hidden file inputs -->
             <input
               ref="fileInputRef"
               type="file"
@@ -944,17 +1176,37 @@ function openFileInput() {
               @change="handleImageSelect"
               class="hidden"
             />
+            <input
+              ref="pdfInputRef"
+              type="file"
+              accept="application/pdf,.pdf"
+              multiple
+              @change="handlePdfSelect"
+              class="hidden"
+            />
             
             <!-- Image upload button -->
             <button
               type="button"
               @click="openFileInput"
-              :disabled="isChatBusy || !currentSessionId || isUploadingImages"
+              :disabled="isChatBusy || !currentSessionId || isUploadingImages || isUploadingPdfs"
               class="flex-shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-700 p-3 rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               :title="isUploadingImages ? 'Mengunggah gambar...' : 'Upload gambar'"
             >
               <Loader2Icon v-if="isUploadingImages" class="w-5 h-5 animate-spin" />
               <ImagePlusIcon v-else class="w-5 h-5" />
+            </button>
+            
+            <!-- PDF upload button -->
+            <button
+              type="button"
+              @click="openPdfInput"
+              :disabled="isChatBusy || !currentSessionId || isUploadingImages || isUploadingPdfs"
+              class="flex-shrink-0 bg-blue-100 hover:bg-blue-200 text-blue-700 p-3 rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              :title="isUploadingPdfs ? 'Mengunggah PDF...' : 'Upload PDF'"
+            >
+              <Loader2Icon v-if="isUploadingPdfs" class="w-5 h-5 animate-spin" />
+              <FileTextIcon v-else class="w-5 h-5" />
             </button>
             
             <div class="flex-1 relative">
@@ -964,8 +1216,8 @@ function openFileInput() {
                   v-model="input"
                   @input="onInput"
                   @keydown.enter.exact.prevent="handleSendMessage"
-                  :disabled="isChatBusy || !currentSessionId || isUploadingImages"
-                  :placeholder="isUploadingImages ? 'Mengunggah gambar...' : 'Ketik pesan Anda... (Enter untuk kirim)'"
+                  :disabled="isChatBusy || !currentSessionId || isUploadingImages || isUploadingPdfs"
+                  :placeholder="isUploadingImages ? 'Mengunggah gambar...' : isUploadingPdfs ? 'Mengunggah PDF...' : 'Ketik pesan Anda... (Enter untuk kirim)'"
                   rows="1"
                   :class="[
                     'w-full px-5 py-3 pr-12 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 resize-none transition-all duration-200 shadow-sm hover:shadow-md',

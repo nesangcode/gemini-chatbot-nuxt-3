@@ -28,6 +28,9 @@ export default defineNuxtConfig({
     },
     rollupConfig: {
       external: ['@prisma/client']
+    },
+    externals: {
+      inline: ['pdf-parse'] // Ensure pdf-parse is bundled correctly
     }
   },
 

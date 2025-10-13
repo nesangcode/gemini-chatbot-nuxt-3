@@ -39,6 +39,7 @@
     "lucide-vue-next": "^0.544.0",
     "markdown-it": "^14.1.0",
     "nuxt": "^3.19.3",
+    "pdf-parse": "^2.2.16",
     "prisma": "^6.16.3",
     "radix-vue": "^1.9.17",
     "tailwind-merge": "^3.3.1",
