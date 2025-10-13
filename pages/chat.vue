@@ -13,15 +13,44 @@ const { signOut, user } = useLogtoSession()
 const currentSessionId = ref(null)
 const currentSession = ref(null)
 
-const headers = useRequestHeaders(['cookie'])
-const { data: chatSessions, refresh: fetchChatSessions } = await useAsyncData(
-  'chat-sessions',
-  () => $fetch('/api/chat/sessions', { headers }),
-  {
-    default: () => [],
-    transform: (response) => response.data || [],
+// Session list pagination
+const sessionsPagination = ref({
+  limit: 20,
+  cursor: null,
+  hasMore: false,
+  loading: false
+})
+
+const chatSessions = ref([])
+
+async function fetchChatSessions() {
+  try {
+    sessionsPagination.value.loading = true
+    const headers = useRequestHeaders(['cookie'])
+    const response = await $fetch('/api/chat/sessions', { 
+      headers,
+      params: {
+        limit: sessionsPagination.value.limit
+      }
+    })
+    
+    if (response?.success && response?.data) {
+      chatSessions.value = response.data
+      sessionsPagination.value = {
+        ...sessionsPagination.value,
+        cursor: response.pagination?.cursor || null,
+        hasMore: response.pagination?.hasMore || false,
+        loading: false
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching sessions:', error)
+    sessionsPagination.value.loading = false
   }
-)
+}
+
+// Initial fetch
+await fetchChatSessions()
 
 // UI refs
 const messagesEndRef = ref(null)
@@ -121,6 +150,37 @@ watch(chat.messages, (newMessages, oldMessages) => {
 }, { deep: true })
 
 // Methods
+
+async function loadMoreSessions() {
+  if (!sessionsPagination.value.hasMore || sessionsPagination.value.loading) {
+    return
+  }
+
+  sessionsPagination.value.loading = true
+
+  try {
+    const response = await $fetch('/api/chat/sessions', {
+      params: {
+        limit: sessionsPagination.value.limit,
+        cursor: sessionsPagination.value.cursor
+      }
+    })
+
+    if (response?.success && response?.data) {
+      // Append more sessions to the list
+      chatSessions.value = [...chatSessions.value, ...response.data]
+      sessionsPagination.value = {
+        ...sessionsPagination.value,
+        cursor: response.pagination?.cursor || null,
+        hasMore: response.pagination?.hasMore || false,
+        loading: false
+      }
+    }
+  } catch (error) {
+    console.error('Error loading more sessions:', error)
+    sessionsPagination.value.loading = false
+  }
+}
 
 async function createNewChat() {
   try {
@@ -415,9 +475,21 @@ function onInput(event) {
           </button>
         </div>
         
-        <div v-if="chatSessions.length === 0" class="text-center text-gray-500 py-12">
+        <div v-if="chatSessions.length === 0 && !sessionsPagination.loading" class="text-center text-gray-500 py-12">
           <MessageSquareIcon class="w-12 h-12 mx-auto mb-3 text-gray-300" />
           <p class="text-sm">Belum ada riwayat chat</p>
+        </div>
+        
+        <!-- Load More Sessions Button -->
+        <div v-if="sessionsPagination.hasMore" class="px-3 pb-3">
+          <button
+            @click="loadMoreSessions"
+            :disabled="sessionsPagination.loading"
+            class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Loader2Icon v-if="sessionsPagination.loading" class="w-4 h-4 animate-spin" />
+            <span v-else>Muat Lebih Banyak</span>
+          </button>
         </div>
       </div>
     </div>
