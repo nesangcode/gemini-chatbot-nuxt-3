@@ -54,10 +54,23 @@ export default defineLazyEventHandler(async () => {
       }
 
       // Transform messages from @ai-sdk/vue format to AI SDK message format
-      const transformedMessages = messages.map((msg: any) => ({
-        role: msg.role,
-        content: msg.parts?.[0]?.text || msg.content || '',
-      }));
+      const transformedMessages = messages.map((msg: any) => {
+        // Check if this is a multimodal message with content array
+        if (msg.content && Array.isArray(msg.content)) {
+          // Content is already in multimodal format (array of parts)
+          return {
+            role: msg.role,
+            content: msg.content
+          };
+        }
+        
+        // Text-only message - extract text from various possible formats
+        const textContent = msg.text || msg.parts?.[0]?.text || msg.content || '';
+        return {
+          role: msg.role,
+          content: textContent,
+        };
+      });
 
       // Limit to last 20 messages to optimize API usage
       const limitedMessages = transformedMessages.slice(-20);
@@ -72,7 +85,35 @@ export default defineLazyEventHandler(async () => {
           async onFinish({ text, toolCalls, toolResults }) {
             try {
               const lastUserMessage = messages[messages.length - 1];
-              const userMessageContent = lastUserMessage.parts?.[0]?.text || lastUserMessage.content || '';
+              const hasImages = body?.hasImages || false;
+              const images = body?.images || [];
+              
+              // Extract user message content
+              let userMessageContent: string;
+              
+              if (hasImages && images.length > 0) {
+                // Get text content from multimodal message
+                let textContent = '';
+                if (Array.isArray(lastUserMessage.content)) {
+                  const textPart = lastUserMessage.content.find((part: any) => part.type === 'text');
+                  textContent = textPart?.text || '';
+                } else {
+                  textContent = lastUserMessage.content || '';
+                }
+                
+                // Store as JSON for multimodal content
+                userMessageContent = JSON.stringify({
+                  type: 'multimodal',
+                  text: textContent,
+                  images: images.map((img: any) => ({
+                    data: img.data,
+                    mimeType: img.mimeType || 'image/jpeg'
+                  }))
+                });
+              } else {
+                // Plain text - extract from text field or parts
+                userMessageContent = lastUserMessage.text || lastUserMessage.parts?.[0]?.text || lastUserMessage.content || '';
+              }
 
               await prisma.message.createMany({
                 data: [
@@ -95,7 +136,9 @@ export default defineLazyEventHandler(async () => {
                 where: { sessionId }
               });
               
-              if (messageCount === 2) {
+              // Only auto-rename for text-only first messages
+              // Skip auto-rename for multimodal messages to avoid complexity
+              if (messageCount === 2 && !hasImages) {
                 // Trigger auto-rename in the background for first message
                 console.log(`[Chat API] Triggering auto-rename for session ${sessionId}`);
                 autoRenameSession({

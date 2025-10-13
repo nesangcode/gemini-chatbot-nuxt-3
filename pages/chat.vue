@@ -1,5 +1,5 @@
 <script setup>
-import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon, SquareIcon } from 'lucide-vue-next'
+import { PlusIcon, SendIcon, MessageSquareIcon, SparklesIcon, UserCircle2Icon, BotIcon, Loader2Icon, TrashIcon, SquareIcon, ImagePlusIcon, XIcon } from 'lucide-vue-next'
 import { Chat } from '@ai-sdk/vue'
 
 definePageMeta({
@@ -181,7 +181,10 @@ const isChatStreaming = ref(false)
 const isChatBusy = computed(() => chat.isLoading || isChatStreaming.value)
 
 const input = ref('')
-const canSendMessage = computed(() => !!input.value.trim() && !!currentSessionId.value && !isChatBusy.value)
+const selectedImages = ref([])
+const fileInputRef = ref(null)
+const isUploadingImages = ref(false)
+const canSendMessage = computed(() => (!!input.value.trim() || selectedImages.value.length > 0) && !!currentSessionId.value && !isChatBusy.value && !isUploadingImages.value)
 
 
 // Pagination state
@@ -195,6 +198,25 @@ const messagesPagination = ref({
 })
 
 function mapApiMessageToUiMessage(message) {
+  try {
+    // Try to parse content as JSON for multimodal messages
+    const parsed = JSON.parse(message.content)
+    if (parsed.type === 'multimodal') {
+      return {
+        ...message,
+        content: parsed,
+        parts: [
+          {
+            type: 'text',
+            text: parsed.text || ''
+          }
+        ]
+      }
+    }
+  } catch (e) {
+    // Not JSON, treat as plain text
+  }
+  
   return {
     ...message,
     parts: [
@@ -375,7 +397,7 @@ async function deleteSession(sessionId) {
 }
 
 async function handleSendMessage() {
-  if (!input.value.trim() || !currentSessionId.value || chat.isLoading || isChatStreaming.value) {
+  if ((!input.value.trim() && selectedImages.value.length === 0) || !currentSessionId.value || chat.isLoading || isChatStreaming.value) {
     return
   }
 
@@ -384,16 +406,55 @@ async function handleSendMessage() {
   chatError.value = null
 
   try {
-    await chat.sendMessage(
-      { text: input.value },
-      {
-        body: {
-          sessionId: currentSessionId.value,
-        },
+    // Format message for AI SDK
+    const hasImages = selectedImages.value.length > 0
+    
+    if (hasImages) {
+      // Multimodal message: content as array of parts
+      const contentParts = []
+      
+      // Add text part if present
+      if (input.value.trim()) {
+        contentParts.push({
+          type: 'text',
+          text: input.value
+        })
       }
-    )
+      
+      // Add image parts
+      selectedImages.value.forEach((image) => {
+        contentParts.push({
+          type: 'image',
+          image: image.data,
+          mimeType: image.mimeType
+        })
+      })
+      
+      await chat.sendMessage(
+        { content: contentParts },
+        {
+          body: {
+            sessionId: currentSessionId.value,
+            hasImages: true,
+            images: selectedImages.value
+          },
+        }
+      )
+    } else {
+      // Text-only message: use standard text format
+      await chat.sendMessage(
+        { text: input.value },
+        {
+          body: {
+            sessionId: currentSessionId.value,
+            hasImages: false
+          },
+        }
+      )
+    }
     console.log('[Chat] Message sent, messages now:', chat.messages.length)
     input.value = ''
+    selectedImages.value = []
   } catch (error) {
     chatError.value = handleNetworkError(error, 'mengirim pesan')
   } finally {
@@ -443,6 +504,10 @@ function getMessageText(message) {
     return ''
   }
 
+  if (typeof message.content === 'object' && message.content?.type === 'multimodal') {
+    return message.content.text || ''
+  }
+
   if (typeof message.content === 'string') {
     return message.content
   }
@@ -482,6 +547,18 @@ function getMessageText(message) {
   return ''
 }
 
+function getMessageImages(message) {
+  if (!message) {
+    return []
+  }
+
+  if (typeof message.content === 'object' && message.content?.type === 'multimodal') {
+    return message.content.images || []
+  }
+
+  return []
+}
+
 function autoResize(event) {
   const textarea = event.target
   textarea.style.height = 'auto'
@@ -490,6 +567,69 @@ function autoResize(event) {
 
 function onInput(event) {
   autoResize(event)
+}
+
+async function handleImageSelect(event) {
+  const files = event.target.files
+  if (!files || files.length === 0) return
+
+  isUploadingImages.value = true
+  const fileArray = Array.from(files)
+  const validFiles = []
+
+  // Validate all files first
+  for (const file of fileArray) {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Hanya file gambar yang diperbolehkan')
+      continue
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file maksimal 5MB')
+      continue
+    }
+
+    validFiles.push(file)
+  }
+
+  // Process all valid files
+  const uploadPromises = validFiles.map((file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const base64 = e.target.result
+        selectedImages.value.push({
+          data: base64.split(',')[1], // Remove data:image/...;base64, prefix
+          mimeType: file.type,
+          preview: base64
+        })
+        resolve()
+      }
+      reader.onerror = () => reject(new Error('Gagal membaca file'))
+      reader.readAsDataURL(file)
+    })
+  })
+
+  try {
+    await Promise.all(uploadPromises)
+  } catch (error) {
+    console.error('Error uploading images:', error)
+    alert('Terjadi kesalahan saat mengunggah gambar')
+  } finally {
+    isUploadingImages.value = false
+    // Reset input
+    event.target.value = ''
+  }
+}
+
+function removeImage(index) {
+  selectedImages.value.splice(index, 1)
+}
+
+function openFileInput() {
+  fileInputRef.value?.click()
 }
 
 </script>
@@ -725,7 +865,20 @@ function onInput(event) {
                 : 'bg-white border border-gray-200 text-gray-900 rounded-tl-sm'
             ]"
           >
+            <!-- Images -->
+            <div v-if="getMessageImages(message).length > 0" class="mb-3 flex flex-wrap gap-2">
+              <img
+                v-for="(image, idx) in getMessageImages(message)"
+                :key="idx"
+                :src="`data:${image.mimeType || 'image/jpeg'};base64,${image.data}`"
+                class="max-w-xs max-h-48 rounded-lg object-cover"
+                :class="message.role === 'user' ? 'border-2 border-white/30' : 'border border-gray-200'"
+              />
+            </div>
+            
+            <!-- Text Content -->
             <div 
+              v-if="getMessageText(message)"
               class="prose prose-sm max-w-none leading-snug" 
               :class="message.role === 'user' ? 'prose-invert' : ''"
               v-html="formatMessage(getMessageText(message))"
@@ -756,7 +909,54 @@ function onInput(event) {
       <!-- Input Area -->
       <div class="bg-white/80 backdrop-blur-xl border-t border-gray-200/50 p-4 shadow-lg">
         <div class="max-w-4xl mx-auto">
-          <div class="flex gap-3 items-center">
+          <!-- Image Previews -->
+          <div v-if="selectedImages.length > 0 || isUploadingImages" class="mb-3 flex flex-wrap gap-2">
+            <div
+              v-for="(image, index) in selectedImages"
+              :key="index"
+              class="relative group"
+            >
+              <img
+                :src="image.preview"
+                class="w-20 h-20 object-cover rounded-lg border-2 border-indigo-200"
+              />
+              <button
+                @click="removeImage(index)"
+                class="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <XIcon class="w-3 h-3" />
+              </button>
+            </div>
+            
+            <!-- Upload loading indicator -->
+            <div v-if="isUploadingImages" class="w-20 h-20 rounded-lg border-2 border-indigo-200 bg-indigo-50 flex items-center justify-center">
+              <Loader2Icon class="w-6 h-6 text-indigo-600 animate-spin" />
+            </div>
+          </div>
+          
+          <div class="flex gap-3 items-end">
+            <!-- Hidden file input -->
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept="image/*"
+              multiple
+              @change="handleImageSelect"
+              class="hidden"
+            />
+            
+            <!-- Image upload button -->
+            <button
+              type="button"
+              @click="openFileInput"
+              :disabled="isChatBusy || !currentSessionId || isUploadingImages"
+              class="flex-shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-700 p-3 rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+              :title="isUploadingImages ? 'Mengunggah gambar...' : 'Upload gambar'"
+            >
+              <Loader2Icon v-if="isUploadingImages" class="w-5 h-5 animate-spin" />
+              <ImagePlusIcon v-else class="w-5 h-5" />
+            </button>
+            
             <div class="flex-1 relative">
               <form @submit.prevent="handleSendMessage">
                 <textarea
@@ -764,8 +964,8 @@ function onInput(event) {
                   v-model="input"
                   @input="onInput"
                   @keydown.enter.exact.prevent="handleSendMessage"
-                  :disabled="isChatBusy || !currentSessionId"
-                  placeholder="Ketik pesan Anda... (Enter untuk kirim)"
+                  :disabled="isChatBusy || !currentSessionId || isUploadingImages"
+                  :placeholder="isUploadingImages ? 'Mengunggah gambar...' : 'Ketik pesan Anda... (Enter untuk kirim)'"
                   rows="1"
                   :class="[
                     'w-full px-5 py-3 pr-12 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-gray-100 resize-none transition-all duration-200 shadow-sm hover:shadow-md',
