@@ -34,9 +34,35 @@ const chat = new Chat({
   body: computed(() => ({
     sessionId: currentSessionId.value
   })),
-  onFinish: async () => {
+  onFinish: async (message) => {
+    console.log('[Chat] onFinish called with message:', message)
+    console.log('[Chat] Current messages count:', chat.messages.length)
+    
+    // Wait a bit for server to finish saving to database
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Reload messages from database to ensure sync
+    if (currentSessionId.value) {
+      try {
+        const response = await $fetch(`/api/chat/sessions/${currentSessionId.value}/messages?limit=50`)
+        if (response?.success && response?.data) {
+          // Replace messages with fresh data from DB
+          chat.messages.splice(0, chat.messages.length, ...response.data.map(mapApiMessageToUiMessage))
+          console.log('[Chat] Reloaded messages from DB:', chat.messages.length)
+        }
+      } catch (error) {
+        console.error('[Chat] Error reloading messages:', error)
+      }
+    }
+    
     // Refresh chat sessions to update timestamps and titles
     await fetchChatSessions()
+    // Update current session with refreshed data
+    if (currentSessionId.value) {
+      currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
+    }
+    
+    console.log('[Chat] Messages after refresh:', chat.messages.length)
   }
 })
 
@@ -57,9 +83,26 @@ const messagesPagination = ref({
   loading: false
 })
 
+function mapApiMessageToUiMessage(message) {
+  return {
+    ...message,
+    parts: [
+      {
+        type: 'text',
+        text: message.content || ''
+      }
+    ]
+  }
+}
+
 
 // Auto-scroll to bottom when new messages arrive
-watch(chat.messages, () => {
+watch(chat.messages, (newMessages, oldMessages) => {
+  console.log('[Chat] Messages changed:', {
+    old: oldMessages?.length || 0,
+    new: newMessages?.length || 0,
+    messages: newMessages
+  })
   nextTick(() => {
     messagesEndRef.value?.scrollIntoView({ behavior: 'smooth' })
   })
@@ -100,18 +143,21 @@ async function selectChatSession(sessionId) {
     const response = await $fetch(`/api/chat/sessions/${sessionId}/messages?limit=20`)
     
     if (response?.success && response?.data) {
-      chat.messages = response.data
+      // Use splice to maintain reactivity instead of direct assignment
+      const mappedMessages = response.data.map(mapApiMessageToUiMessage)
+      chat.messages.splice(0, chat.messages.length, ...mappedMessages)
+      console.log('[Chat] Loaded messages for session:', sessionId, 'Count:', chat.messages.length)
       messagesPagination.value = {
         ...messagesPagination.value,
         ...response.pagination,
         loading: false
       }
     } else {
-      chat.messages = []
+      chat.messages.splice(0, chat.messages.length)
     }
   } catch (error) {
     console.error('Error fetching messages:', error)
-    chat.messages = []
+    chat.messages.splice(0, chat.messages.length)
     messagesPagination.value.loading = false
   }
 }
@@ -133,7 +179,8 @@ async function loadMoreMessages() {
 
     if (response?.success && response?.data) {
       // Prepend older messages to the beginning
-      chat.messages = [...response.data, ...chat.messages]
+      const mappedMessages = response.data.map(mapApiMessageToUiMessage)
+      chat.messages = [...mappedMessages, ...chat.messages]
       messagesPagination.value = {
         ...messagesPagination.value,
         ...response.pagination,
@@ -163,7 +210,7 @@ async function deleteSession(sessionId) {
     if (currentSessionId.value === sessionId) {
       currentSessionId.value = null
       currentSession.value = null
-      chat.messages = []
+      chat.messages.splice(0, chat.messages.length)
       messagesPagination.value = {
         total: 0,
         limit: 20,
@@ -183,6 +230,7 @@ async function handleSendMessage() {
     return
   }
 
+  console.log('[Chat] Sending message, current messages:', chat.messages.length)
   isChatStreaming.value = true
 
   try {
@@ -194,10 +242,10 @@ async function handleSendMessage() {
         },
       }
     )
-    await selectChatSession(currentSessionId.value)
+    console.log('[Chat] Message sent, messages now:', chat.messages.length)
     input.value = ''
   } catch (error) {
-    console.error('Error sending message:', error)
+    console.error('[Chat] Error sending message:', error)
   } finally {
     isChatStreaming.value = false
 
