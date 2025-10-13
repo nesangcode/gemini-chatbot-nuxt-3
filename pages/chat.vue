@@ -12,6 +12,7 @@ const { signOut, user } = useLogtoSession()
 // Chat sessions state
 const currentSessionId = ref(null)
 const currentSession = ref(null)
+const loadingSessionId = ref(null)
 
 // Error states
 const sidebarError = ref(null)
@@ -268,6 +269,7 @@ async function createNewChat() {
 }
 
 async function selectChatSession(sessionId) {
+  loadingSessionId.value = sessionId
   currentSessionId.value = sessionId
   currentSession.value = chatSessions.value.find(s => s.id === sessionId)
   
@@ -302,6 +304,8 @@ async function selectChatSession(sessionId) {
     messagesError.value = handleNetworkError(error, 'memuat pesan')
     chat.messages.splice(0, chat.messages.length)
     messagesPagination.value.loading = false
+  } finally {
+    loadingSessionId.value = null
   }
 }
 
@@ -558,7 +562,8 @@ function onInput(event) {
         >
           <div @click="selectChatSession(session.id)" class="flex-1">
             <div class="flex items-start gap-2">
-              <MessageSquareIcon class="w-4 h-4 mt-1 flex-shrink-0" :class="currentSessionId === session.id ? 'text-indigo-600' : 'text-gray-400'" />
+              <Loader2Icon v-if="loadingSessionId === session.id" class="w-4 h-4 mt-1 flex-shrink-0 text-indigo-600 animate-spin" />
+              <MessageSquareIcon v-else class="w-4 h-4 mt-1 flex-shrink-0" :class="currentSessionId === session.id ? 'text-indigo-600' : 'text-gray-400'" />
               <div class="flex-1 min-w-0">
                 <h3 class="font-medium text-gray-900 truncate text-sm">{{ session.title }}</h3>
                 <p class="text-xs text-gray-500 mt-0.5">
@@ -614,6 +619,12 @@ function onInput(event) {
 
       <!-- Messages -->
       <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+        <!-- Loading State -->
+        <div v-if="messagesPagination.loading && chat.messages.length === 0" class="flex flex-col items-center justify-center py-20">
+          <Loader2Icon class="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+          <p class="text-gray-500 font-medium">Memuat pesan...</p>
+        </div>
+        <template v-else>
         <!-- Messages Error Alert -->
         <div v-if="messagesError" class="bg-red-50 border border-red-200 rounded-lg p-4 animate-fade-in">
           <div class="flex items-start gap-3">
@@ -739,6 +750,7 @@ function onInput(event) {
         </div>
         
         <div ref="messagesEndRef"></div>
+        </template>
       </div>
 
       <!-- Input Area -->
