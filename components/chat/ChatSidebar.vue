@@ -11,7 +11,7 @@
             <MessageSquareIcon class="w-5 h-5 text-white" />
           </div>
           <div class="flex-1 min-w-0">
-            <h1 class="text-lg font-bold text-gray-900 truncate">AI Kitalulus</h1>
+            <h1 class="text-lg font-bold text-gray-900 truncate">AI Pastilulus</h1>
             <p class="text-xs text-gray-500 truncate">{{ user?.name || user?.email }}</p>
           </div>
         </div>
