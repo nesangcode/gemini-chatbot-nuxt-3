@@ -59,11 +59,14 @@ export default defineLazyEventHandler(async () => {
         content: msg.parts?.[0]?.text || msg.content || '',
       }));
 
-      console.log(`[Chat API] Processing ${messages.length} messages for user ${user.id}`);
+      // Limit to last 20 messages to optimize API usage
+      const limitedMessages = transformedMessages.slice(-20);
+
+      console.log(`[Chat API] Processing ${limitedMessages.length} of ${messages.length} messages for user ${user.id}`);
 
       const result = await streamText({
         model: google('gemini-2.0-flash'),
-        messages: transformedMessages,
+        messages: limitedMessages,
         async onFinish({ text, toolCalls, toolResults }) {
           try {
             const lastUserMessage = messages[messages.length - 1];
