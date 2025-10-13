@@ -49,6 +49,18 @@ const chat = new Chat({
           // Replace messages with fresh data from DB
           chat.messages.splice(0, chat.messages.length, ...response.data.map(mapApiMessageToUiMessage))
           console.log('[Chat] Reloaded messages from DB:', chat.messages.length)
+          
+          // If this is the first exchange (2 messages), schedule additional refresh for auto-rename
+          if (response.data.length === 2) {
+            console.log('[Chat] First message detected, scheduling additional refresh for auto-rename')
+            setTimeout(async () => {
+              await fetchChatSessions()
+              if (currentSessionId.value) {
+                currentSession.value = chatSessions.value.find(s => s.id === currentSessionId.value)
+                console.log('[Chat] Auto-rename title updated:', currentSession.value?.title)
+              }
+            }, 3000) // Wait 3 seconds for auto-rename to complete
+          }
         }
       } catch (error) {
         console.error('[Chat] Error reloading messages:', error)

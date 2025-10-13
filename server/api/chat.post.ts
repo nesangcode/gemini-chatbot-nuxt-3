@@ -2,6 +2,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import { prisma } from '~/lib/prisma';
 import { requireAuth } from '../utils/auth';
+import { autoRenameSession } from '../utils/session-title';
 
 export default defineLazyEventHandler(async () => {
   const runtimeConfig = useRuntimeConfig();
@@ -83,6 +84,25 @@ export default defineLazyEventHandler(async () => {
               ],
             });
             console.log(`[Chat API] Successfully saved messages for user ${user.id}`);
+            
+            // Check if this is the first message exchange (2 messages total)
+            const messageCount = await prisma.message.count({
+              where: { sessionId }
+            });
+            
+            if (messageCount === 2) {
+              // Trigger auto-rename in the background for first message
+              console.log(`[Chat API] Triggering auto-rename for session ${sessionId}`);
+              autoRenameSession({
+                sessionId,
+                userId: user.id,
+                apiKey: runtimeConfig.geminiApiKey
+              }).then((result) => {
+                console.log(`[Chat API] Session ${sessionId} auto-renamed to: "${result.title}"`);
+              }).catch((error) => {
+                console.error(`[Chat API] Error auto-renaming session ${sessionId}:`, error);
+              });
+            }
           } catch (error) {
             console.error('[Chat API] Error saving messages to database:', error);
             // Don't throw here - we still want to return the AI response even if DB save fails

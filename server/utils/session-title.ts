@@ -115,7 +115,7 @@ export async function autoRenameSession(params: {
   const conversationContext = buildConversationContext(session.messages)
 
   const { text } = await generateText({
-    model: google('gemini-2.5-pro'),
+    model: google('gemini-2.0-flash'),
     prompt: `Buat judul singkat (maks 50 karakter) yang menggambarkan percakapan berikut. Hanya kembalikan judul saja tanpa tanda kutip atau penjelasan tambahan.\n\n${conversationContext}`,
     temperature: 0.4
   })
