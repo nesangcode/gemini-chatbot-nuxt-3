@@ -52,7 +52,6 @@ export function useChatSessions() {
         }
       }
     } catch (error) {
-      console.error('Error fetching sessions:', error)
       sidebarError.value = {
         type: 'error',
         message: 'Gagal memuat daftar chat',
@@ -90,7 +89,6 @@ export function useChatSessions() {
         }
       }
     } catch (error) {
-      console.error('Error loading more sessions:', error)
       sidebarError.value = {
         type: 'error',
         message: 'Gagal memuat lebih banyak chat',
@@ -113,7 +111,6 @@ export function useChatSessions() {
         return response.data.id
       }
     } catch (error) {
-      console.error('Error creating chat:', error)
       sidebarError.value = {
         type: 'error',
         message: 'Gagal membuat chat baru',
@@ -138,7 +135,6 @@ export function useChatSessions() {
       }
       return false
     } catch (error) {
-      console.error('Error deleting session:', error)
       sidebarError.value = {
         type: 'error',
         message: 'Gagal menghapus chat',
@@ -165,7 +161,6 @@ export function useChatSessions() {
         }
       }
     } catch (error) {
-      console.error('Error renaming session:', error)
       throw error
     }
   }

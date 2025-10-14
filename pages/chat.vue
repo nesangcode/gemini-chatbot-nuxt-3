@@ -73,8 +73,6 @@ const chatError = ref(null)
 
 // Helper function for network errors
 function handleNetworkError(error, context = 'operation') {
-  console.error(`Error in ${context}:`, error)
-  
   if (!error) {
     return { type: 'unknown', message: `Terjadi kesalahan saat ${context}`, canRetry: true }
   }
@@ -93,7 +91,7 @@ function handleNetworkError(error, context = 'operation') {
 // Chat finish handler
 function handleChatFinish() {
   // Reload sessions from the beginning to get updated timestamps and titles
-  fetchChatSessions(true).catch(err => console.error('Failed to refresh sessions:', err))
+  fetchChatSessions(true).catch(() => {})
 }
 
 // AI SDK Chat
@@ -107,19 +105,16 @@ const chat = new Chat({
   }),
   onFinish: (options) => {
     if (options.isError) {
-      console.error('[Chat] Stream finished with error')
       chatError.value = { message: 'Terjadi kesalahan saat menerima respons' }
       return
     }
     
     if (options.isDisconnect) {
-      console.error('[Chat] Stream disconnected')
       chatError.value = { message: 'Koneksi terputus. Silakan coba lagi.' }
       return
     }
     
     if (options.isAbort) {
-      console.log('[Chat] Stream aborted by user')
       return
     }
     
@@ -127,7 +122,6 @@ const chat = new Chat({
     handleChatFinish()
   },
   onError: (error) => {
-    console.error('[Chat] onError:', error)
     chatError.value = handleNetworkError(error, 'mengirim pesan')
   }
 })
@@ -148,6 +142,22 @@ const greeting = computed(() => {
   if (hour >= 11 && hour < 15) return 'Selamat siang'
   if (hour >= 15 && hour < 19) return 'Selamat sore'
   return 'Selamat malam'
+})
+
+// Display name: prefer name, fallback to email (but not if it's a placeholder)
+const displayName = computed(() => {
+  if (user.value?.name) {
+    return user.value.name
+  }
+  
+  const email = user.value?.email || ''
+  
+  // Check if email is a generated placeholder (starts with "user-" and ends with "@example.com")
+  if (email.match(/^user-[a-zA-Z0-9]+@example\.com$/)) {
+    return 'Pengguna'
+  }
+  
+  return email
 })
 
 // Auto-scroll (but not when loading older messages)
@@ -247,7 +257,6 @@ async function handleModelChange(newModel) {
       if (sessionInList) sessionInList.model = newModel
     }
   } catch (error) {
-    console.error('Error updating model:', error)
     chatError.value = { message: 'Gagal mengubah model' }
   }
 }
@@ -296,12 +305,6 @@ async function handleSendMessage() {
       
       // Add PDF parts as file type
       selectedPdfs.value.forEach((pdf, index) => {
-        console.log(`[Send] Adding PDF ${index + 1}:`, {
-          name: pdf.name,
-          mimeType: pdf.mimeType,
-          dataLength: pdf.data?.length || 0,
-          size: pdf.size
-        })
         contentParts.push({
           type: 'file',
           data: pdf.data,
@@ -324,7 +327,6 @@ async function handleSendMessage() {
     } else {
       // Text-only message: use content array format for consistency
       const messageContent = [{ type: 'text', text: input.value.trim() }]
-      console.log('[Send] Text-only message:', messageContent)
       
       await chat.sendMessage(
         { content: messageContent },
@@ -343,7 +345,6 @@ async function handleSendMessage() {
     nextTick(() => chatInputRef.value?.inputRef?.focus())
 
   } catch (error) {
-    console.error('Send message error:', error)
     chatError.value = handleNetworkError(error, 'mengirim pesan')
   }
 }
@@ -418,7 +419,7 @@ async function handleSendMessage() {
               <BotIcon class="w-12 h-12 text-white" />
             </div>
             <h1 class="text-3xl md:text-4xl font-bold text-gray-900">
-              {{ greeting }}, <span class="text-indigo-600">{{ user?.email || 'Pengguna' }}</span>
+              {{ greeting }}, <span class="text-indigo-600">{{ displayName }}</span>
             </h1>
             <p class="text-lg text-gray-600 max-w-2xl">
               Mulai percakapan baru dengan Gemini AI atau pilih chat dari sidebar

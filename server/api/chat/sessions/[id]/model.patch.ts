@@ -57,8 +57,6 @@ export default defineEventHandler(async (event) => {
       },
     }
   } catch (error: any) {
-    console.error('Error updating session model:', error)
-
     if (error.statusCode) {
       throw error
     }

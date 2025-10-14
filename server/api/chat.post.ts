@@ -33,8 +33,6 @@ export default defineLazyEventHandler(async () => {
         });
       }
       
-      console.log('[Chat API] Received', messages.length, 'messages')
-      
       // Clean up messages: filter out metadata parts (step-start, step-finish, etc)
       const cleanedMessages = messages.map(msg => {
         if (msg.parts && Array.isArray(msg.parts)) {
@@ -55,13 +53,6 @@ export default defineLazyEventHandler(async () => {
         }
         return msg
       })
-      
-      console.log('[Chat API] Last 3 cleaned messages:', JSON.stringify(cleanedMessages.slice(-3).map(m => ({
-        role: m.role,
-        contentType: typeof m.content,
-        isArray: Array.isArray(m.content),
-        content: Array.isArray(m.content) ? m.content : (typeof m.content === 'string' ? m.content.substring(0, 100) : m.content)
-      })), null, 2))
 
       if (!sessionId || typeof sessionId !== 'string') {
         throw createError({
@@ -100,15 +91,12 @@ export default defineLazyEventHandler(async () => {
       })
 
       const limitedMessages = filteredMessages.slice(-20)
-      console.log(`[Chat API] Processing ${limitedMessages.length} messages (filtered from ${transformedMessages.length})`)
-      console.log('[Chat API] Last 3 messages:', JSON.stringify(limitedMessages.slice(-3), null, 2))
 
       let savedMessageIds: { userMessageId: string; assistantMessageId: string } | null = null
       let result
       try {
         // Use model from session, fallback to default
         const modelName = session.model || 'gemini-2.5-flash'
-        console.log(`[Chat API] Using model: ${modelName} for session: ${sessionId}`)
         result = await streamText({
           model: google(modelName),
           messages: limitedMessages,
@@ -152,19 +140,16 @@ export default defineLazyEventHandler(async () => {
                     userId: user.id,
                     apiKey: runtimeConfig.geminiApiKey
                   })
-                  console.log('[Chat API] Auto-rename completed successfully')
                 } catch (error) {
-                  console.error('[Chat API] Auto-rename failed:', error)
+                  // Auto-rename failed, continue
                 }
               }
             } catch (error) {
-              console.error('[Chat API] Error saving messages:', error)
+              // Error saving messages, continue
             }
           },
         });
       } catch (apiError: any) {
-        console.error('[Chat API] Gemini API error:', apiError)
-        
         if (apiError.code === 'ENOTFOUND' || apiError.code === 'ECONNREFUSED' || apiError.code === 'ETIMEDOUT') {
           throw createError({ statusCode: 503, message: 'Tidak dapat terhubung ke layanan Gemini AI.' })
         }
@@ -180,8 +165,6 @@ export default defineLazyEventHandler(async () => {
 
       return result.toTextStreamResponse()
     } catch (error: any) {
-      console.error('[Chat API] Error:', error)
-      
       if (error.statusCode) throw error
       if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         throw createError({ statusCode: 503, message: 'Tidak dapat terhubung ke server.' })

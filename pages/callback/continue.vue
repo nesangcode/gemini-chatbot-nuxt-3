@@ -59,15 +59,10 @@ onMounted(() => {
   }
 
   if (isDebugMode.value) {
-    console.debug('[Logto][callback] Debug snapshot', {
-      ...debugState.value,
-      timestamp: new Date().toISOString()
-    })
     return
   }
 
   if (!isAuthenticated.value) {
-    console.warn('[Logto][callback] Missing authenticated session during callback continue redirect')
     redirectCookie.value = null
     navigateTo(LOGTO_REDIRECT_FALLBACK, { replace: true })
     return

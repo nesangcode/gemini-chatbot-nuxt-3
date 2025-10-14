@@ -141,20 +141,8 @@ const pdfs = computed(() => {
 
 // Extract text from message
 const text = computed(() => {
-  // Debug logging
-  console.log('[ChatMessage] Message structure:', {
-    id: props.message.id,
-    role: props.message.role,
-    hasText: !!props.message.text,
-    hasParts: !!props.message.parts,
-    contentType: typeof props.message.content,
-    isArray: Array.isArray(props.message.content),
-    keys: Object.keys(props.message)
-  })
-  
   // AI SDK text-only format: { text: "..." }
   if (props.message.text) {
-    console.log('[ChatMessage] Using .text property:', props.message.text?.substring(0, 50))
     return props.message.text
   }
   
@@ -164,24 +152,20 @@ const text = computed(() => {
     const textPart = props.message.parts.find((part) => 
       part.type === 'text' && part.text
     )
-    console.log('[ChatMessage] Using .parts array, found text part:', !!textPart)
     return textPart?.text || ''
   }
   
   // Plain string content
   if (typeof props.message.content === 'string') {
-    console.log('[ChatMessage] Using string content:', props.message.content?.substring(0, 50))
     return props.message.content
   }
   
   // Array content - extract text part
   if (Array.isArray(props.message.content)) {
     const textPart = props.message.content.find((part) => part.type === 'text')
-    console.log('[ChatMessage] Using array content, found text part:', !!textPart)
     return textPart?.text || ''
   }
   
-  console.warn('[ChatMessage] No text found in message:', props.message)
   return ''
 })
 

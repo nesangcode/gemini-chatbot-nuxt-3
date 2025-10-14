@@ -44,17 +44,12 @@ const startSignIn = async () => {
   try {
     await signIn(redirectPath.value)
   } catch (error) {
-    console.error('Logto sign-in failed:', error)
     errorMessage.value = 'Tidak dapat memulai proses masuk. Silakan coba lagi.'
   }
 }
 
 onMounted(() => {
   if (isDebugMode.value) {
-    console.debug('[Logto][sign-in] Debug snapshot', {
-      ...debugState.value,
-      timestamp: new Date().toISOString()
-    })
     return
   }
 

@@ -54,8 +54,6 @@ export default defineEventHandler(async (event) => {
       throw renameError
     }
   } catch (error: any) {
-    console.error('Error renaming session:', error)
-
     if (error.statusCode) {
       throw error
     }

@@ -30,26 +30,16 @@ export async function extractPdfText(
     const require = createRequire(import.meta.url);
     const { PDFParse } = require('pdf-parse');
     
-    console.log('[PDF Parser] Starting extraction, buffer size:', buf.length);
-    
     // v2 API: new PDFParse({ data: buffer })
     parser = new PDFParse({ data: buf });
     
     // Call getText() which returns a promise with result.text
     const result = await parser.getText();
     
-    console.log('[PDF Parser] Raw extraction result:', {
-      hasText: !!result?.text,
-      textLength: result?.text?.length || 0,
-      pages: result?.numpages || 0,
-      info: result?.info
-    });
-    
     // Guard + minor cleanup (some PDFs include null chars)
     let text = typeof result?.text === 'string' ? result.text.replace(/\u0000/g, '').trim() : '';
     
     if (!text || text.length === 0) {
-      console.warn('[PDF Parser] No text extracted from PDF');
       return '[Tidak ada teks yang dapat diekstrak dari PDF ini. PDF mungkin berisi gambar atau teks yang tidak dapat dibaca.]';
     }
     
@@ -63,25 +53,16 @@ export async function extractPdfText(
       text += `\n\n[... Dokumen dipotong karena terlalu panjang. Menampilkan ${maxChars.toLocaleString()} dari ${originalLength.toLocaleString()} karakter total.]`;
     }
     
-    console.log('[PDF Parser] Extraction successful:', {
-      pages: result.numpages,
-      originalLength,
-      finalLength: text.length,
-      truncated: wasTruncated
-    });
-    
     return text;
   } catch (err: any) {
-    console.error('[PDF Parser] Failed to parse PDF:', err?.message || err, err?.stack);
     throw new Error(`[PDF Parser] Failed to parse PDF: ${err?.message || err}`);
   } finally {
     // Clean up parser resources as per v2 API documentation
     if (parser && typeof parser.destroy === 'function') {
       try {
         await parser.destroy();
-        console.log('[PDF Parser] Parser destroyed successfully');
       } catch (destroyErr) {
-        console.warn('[PDF Parser] Failed to destroy parser:', destroyErr);
+        // Silently ignore cleanup errors
       }
     }
   }

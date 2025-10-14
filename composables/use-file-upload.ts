@@ -44,7 +44,7 @@ export function useFileUpload() {
         })
       }
     } catch (error) {
-      console.error('Error reading images:', error)
+      // Error reading images
     } finally {
       isUploadingImages.value = false
       if (input) input.value = ''
@@ -81,7 +81,7 @@ export function useFileUpload() {
         })
       }
     } catch (error) {
-      console.error('Error reading PDFs:', error)
+      // Error reading PDFs
     } finally {
       isUploadingPdfs.value = false
       if (input) input.value = ''

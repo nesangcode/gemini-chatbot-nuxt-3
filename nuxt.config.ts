@@ -1,4 +1,5 @@
 import { LOGTO_POST_CALLBACK_REDIRECT } from './lib/logto/constants'
+import { UserScope } from '@logto/nuxt'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -19,6 +20,11 @@ export default defineNuxtConfig({
 
   // Enable pages directory
   pages: true,
+
+  // Logto module configuration
+  logto: {
+    scopes: [UserScope.Email, UserScope.Phone], // Request additional scopes beyond default (openid, profile, offline_access)
+  },
 
   // Netlify deployment configuration
   nitro: {

@@ -4,7 +4,6 @@ import { requireAuth } from '../../utils/auth'
 export default defineEventHandler(async (event) => {
   try {
     const user = await requireAuth(event)
-    console.log('[Sessions GET] User ID:', user.id)
     
     // Parse query parameters for pagination
     const query = getQuery(event)
@@ -13,7 +12,6 @@ export default defineEventHandler(async (event) => {
     
     // Build the query with pagination
     const whereClause: any = { userId: user.id }
-    console.log('[Sessions GET] Cursor:', cursor)
     
     // If cursor is provided, parse it (format: "timestamp_id")
     if (cursor) {
@@ -30,7 +28,7 @@ export default defineEventHandler(async (event) => {
           }
         ]
       } catch (e) {
-        console.error('[Sessions GET] Invalid cursor format:', cursor)
+        // Invalid cursor format, ignore and fetch from beginning
       }
     }
 
@@ -50,8 +48,6 @@ export default defineEventHandler(async (event) => {
       ],
       take: limit + 1 // Fetch one extra to check if there are more
     })
-    
-    console.log('[Sessions GET] Found sessions:', rawSessions.length)
     
     // Check if there are more results
     const hasMore = rawSessions.length > limit
@@ -80,8 +76,6 @@ export default defineEventHandler(async (event) => {
       }
     }
   } catch (error: any) {
-    console.error('Error fetching chat sessions:', error)
-
     if (error.statusCode) {
       throw error
     }

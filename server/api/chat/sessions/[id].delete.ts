@@ -43,8 +43,6 @@ export default defineEventHandler(async (event) => {
       message: 'Chat session deleted successfully',
     }
   } catch (error: any) {
-    console.error('Error deleting session:', error)
-
     if (error.statusCode) {
       throw error
     }

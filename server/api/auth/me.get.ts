@@ -12,11 +12,11 @@ export default defineEventHandler(async (event) => {
       user: {
         id: user.id,
         email: user.email,
+        name: user.name,
         logtoId: user.logtoId
       }
     }
   } catch (error) {
-    console.error('[API /auth/me] Error:', error)
     return { user: null }
   }
 })

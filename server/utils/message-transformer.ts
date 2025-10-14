@@ -26,22 +26,15 @@ export async function transformMessage(msg: any): Promise<any> {
     const processedContent = await Promise.all(msg.content.map(async (part: any) => {
       if (part.type === 'file' && (part.mediaType === 'application/pdf' || part.mimeType === 'application/pdf')) {
         try {
-          console.log('[Transform] Processing PDF file, data length:', part.data?.length || 0)
-          
           if (!part.data) {
-            console.error('[Transform] PDF part missing data field')
             return { type: 'text', text: '[Error: Data PDF tidak ditemukan]' }
           }
           
           const pdfBuffer = Buffer.from(part.data, 'base64')
-          console.log('[Transform] Created buffer, size:', pdfBuffer.length)
-          
           const extractedText = await extractPdfText(pdfBuffer)
-          console.log('[Transform] Extracted text length:', extractedText?.length || 0)
           
           return { type: 'text', text: `[Konten dari PDF]:\n\n${extractedText}` }
         } catch (err: any) {
-          console.error('[Transform] PDF extraction error:', err?.message || err)
           return { type: 'text', text: `[Error: Tidak dapat membaca konten PDF - ${err?.message || 'Unknown error'}]` }
         }
       }

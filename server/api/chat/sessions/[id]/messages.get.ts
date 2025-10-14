@@ -89,8 +89,6 @@ export default defineEventHandler(async (event) => {
       }
     }
   } catch (error: any) {
-    console.error('Error fetching messages:', error)
-
     if (error.statusCode) {
       throw error
     }

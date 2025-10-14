@@ -15,8 +15,6 @@ export function useChatMessages() {
     // Backend already parses JSON, so content can be string or object
     const content = message.content
     
-    console.log('[MAP] Message:', { id: message.id, role: message.role, type: typeof content })
-    
     // If it's multimodal format from API (with text and images/pdfs fields)
     if (content && typeof content === 'object' && content.type === 'multimodal') {
       const parts = []
@@ -49,7 +47,6 @@ export function useChatMessages() {
         })
       }
       
-      console.log('[MAP] Multimodal -> parts:', parts.length, 'parts')
       return {
         id: message.id,
         role: message.role,
@@ -58,7 +55,6 @@ export function useChatMessages() {
     }
     
     // Plain text message
-    console.log('[MAP] Plain text message')
     return {
       id: message.id,
       role: message.role,
@@ -97,7 +93,6 @@ export function useChatMessages() {
       messagesPagination.value.loading = false
       return []
     } catch (error) {
-      console.error('Error fetching messages:', error)
       messagesError.value = {
         type: 'error',
         message: 'Gagal memuat pesan',
@@ -140,7 +135,6 @@ export function useChatMessages() {
       isLoadingOlderMessages.value = false
       return { messages: [], scrollData: null }
     } catch (error) {
-      console.error('Error loading more messages:', error)
       messagesError.value = {
         type: 'error',
         message: 'Gagal memuat lebih banyak pesan',

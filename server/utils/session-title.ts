@@ -123,14 +123,10 @@ export async function autoRenameSession(params: {
     });
     text = result.text;
   } catch (apiError: any) {
-    console.error('[Auto-rename] Gemini API error:', apiError);
-    
     // Handle network errors - use fallback title
     if (apiError.code === 'ENOTFOUND' || apiError.code === 'ECONNREFUSED' || apiError.code === 'ETIMEDOUT') {
-      console.warn('[Auto-rename] Network error, using fallback title');
       text = `Percakapan ${new Date().toLocaleDateString('id-ID')}`;
     } else if (apiError.status === 429) {
-      console.warn('[Auto-rename] Rate limit exceeded, using fallback title');
       text = `Percakapan ${new Date().toLocaleDateString('id-ID')}`;
     } else {
       // For other errors, re-throw

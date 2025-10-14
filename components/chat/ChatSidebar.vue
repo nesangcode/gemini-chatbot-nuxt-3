@@ -12,7 +12,9 @@
           </div>
           <div class="flex-1 min-w-0">
             <h1 class="text-lg font-bold text-gray-900 truncate">AI Pastilulus</h1>
-            <p class="text-xs text-gray-500 truncate">{{ user?.name || user?.email }}</p>
+            <p v-if="user?.name" class="text-xs text-gray-700 font-medium truncate">{{ user.name }}</p>
+            <p v-if="user?.email" class="text-xs text-gray-500 truncate">{{ user.email }}</p>
+            <p v-if="user?.phone" class="text-xs text-gray-500 truncate">{{ user.phone }}</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
