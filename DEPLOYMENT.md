@@ -25,14 +25,17 @@ Tambahkan variabel berikut pada lingkungan Netlify dan file `.env` lokal Anda:
 DATABASE_URL="postgresql://<user>:<password>@<endpoint>/<database>?sslmode=require"
 
 # Google Gemini API Key
-gemini_api_key="your_gemini_api_key_here"
+GEMINI_API_KEY="your_gemini_api_key_here"
 
 # Logto
 LOGTO_ENDPOINT="https://your-space.logto.app"
 LOGTO_APP_ID="your_logto_app_id"
 LOGTO_APP_SECRET="your_logto_app_secret"
 LOGTO_COOKIE_ENCRYPTION_KEY="32_character_random_string"
-LOGTO_BASE_URL="http://localhost:3000"
+LOGTO_BASE_URL="http://localhost:3000"  # Atau URL Netlify untuk production
+
+# Environment
+NODE_ENV="development"  # Gunakan "production" untuk Netlify
 ```
 
 > Gunakan perintah `openssl rand -hex 16` atau generator rahasia lain untuk menghasilkan nilai `LOGTO_COOKIE_ENCRYPTION_KEY`.
@@ -90,9 +93,17 @@ LOGTO_BASE_URL="http://localhost:3000"
 2. Hubungkan repository ke Netlify.
 3. Pada pengaturan build Netlify, gunakan konfigurasi:
    - Build command: `npm run build`
-   - Publish directory: `.output/public`
-   - Node version: `18`
-4. Tambahkan semua variabel lingkungan pada menu **Site settings → Environment variables**.
+   - Publish directory: `dist`
+   - Node version: `20`
+4. Tambahkan semua variabel lingkungan pada menu **Site settings → Environment variables**:
+   - `DATABASE_URL`
+   - `GEMINI_API_KEY`
+   - `LOGTO_ENDPOINT`
+   - `LOGTO_APP_ID`
+   - `LOGTO_APP_SECRET`
+   - `LOGTO_COOKIE_ENCRYPTION_KEY`
+   - `LOGTO_BASE_URL` (gunakan URL Netlify Anda, misal: `https://your-app.netlify.app`)
+   - `NODE_ENV="production"`
 5. Deploy ulang situs.
 
 ### 6. Verifikasi Pasca-Deploy
