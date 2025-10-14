@@ -1,5 +1,5 @@
 [build]
-  command = "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps && npx nuxi prepare && npm run build"
+  command = "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps && npx prisma generate && npx nuxi prepare && npm run build"
   publish = "dist"
 
 [build.environment]
@@ -11,6 +11,8 @@
 
 [functions]
   directory = ".netlify/functions-internal"
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client", ".prisma/client", "better-sqlite3"]
 
 [[headers]]
   for = "/*"

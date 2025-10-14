@@ -32,12 +32,10 @@ export default defineNuxtConfig({
     experimental: {
       wasm: true
     },
-    rollupConfig: {
-      external: ['@prisma/client']
-    },
     externals: {
-      inline: ['pdf-parse'] // Ensure pdf-parse is bundled correctly
-    }
+      inline: ['pdf-parse', 'better-sqlite3'] // Ensure pdf-parse is bundled correctly
+    },
+    moduleSideEffects: ['@prisma/client']
   },
 
   runtimeConfig: {
