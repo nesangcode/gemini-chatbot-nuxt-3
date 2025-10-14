@@ -85,7 +85,7 @@ LOGTO_ENDPOINT="https://<your-space>.logto.app"
 LOGTO_APP_ID="your_logto_app_id"
 LOGTO_APP_SECRET="your_logto_app_secret"
 LOGTO_COOKIE_ENCRYPTION_KEY="generate_with_openssl_rand_hex_16"
-LOGTO_BASE_URL="http://localhost:3000"
+LOGTO_BASE_URL="http://localhost:3000" # use netlify url for production
 
 # Environment
 NODE_ENV="development"  # Use "production" for Netlify deployment
