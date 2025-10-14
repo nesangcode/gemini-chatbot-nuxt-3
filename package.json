@@ -6,7 +6,6 @@
     "node": ">=20.19.0"
   },
   "scripts": {
-    "prebuild": "nuxi prepare",
     "build": "nuxi build",
     "predev": "nuxi prepare",
     "dev": "nuxi dev",
@@ -14,7 +13,7 @@
     "generate": "nuxi generate",
     "prepreview": "nuxi prepare",
     "preview": "nuxi preview",
-    "postinstall": "nuxi prepare",
+    "postinstall": "node -e \"process.env.CI || require('child_process').execSync('nuxi prepare', {stdio: 'inherit'})\"",
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",

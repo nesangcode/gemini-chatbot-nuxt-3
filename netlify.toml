@@ -1,10 +1,10 @@
 [build]
-  command = "rm -rf node_modules package-lock.json && npm install && npm run build"
+  command = "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps && npx nuxi prepare && npm run build"
   publish = ".output/public"
 
 [build.environment]
   NODE_VERSION = "20"
-  NPM_FLAGS = "--legacy-peer-deps"
+  CI = "true"
 
 [[redirects]]
   from = "/*"
