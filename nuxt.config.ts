@@ -28,7 +28,7 @@ export default defineNuxtConfig({
 
   // Netlify deployment configuration
   nitro: {
-    preset: process.env.NETLIFY || process.env.NODE_ENV === 'production' ? 'netlify' : undefined,
+    preset: 'netlify',
     experimental: {
       wasm: true
     },
