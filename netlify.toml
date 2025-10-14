@@ -1,6 +1,6 @@
 [build]
-  command = "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps && npx nuxi prepare && npm run build && ls -la .output/"
-  publish = ".output/public"
+  command = "rm -rf node_modules package-lock.json && npm install --legacy-peer-deps && npx nuxi prepare && npm run build"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
