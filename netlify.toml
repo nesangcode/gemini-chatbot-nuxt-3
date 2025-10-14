@@ -9,13 +9,8 @@
   # Exclude Nuxt server bundles from secrets scanning (these use runtime env vars)
   SECRETS_SCAN_OMIT_PATHS = ".netlify/functions-internal/**,.nuxt/prerender/**"
 
-[[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/server"
-  status = 200
-
 [functions]
-  node_bundler = "esbuild"
+  directory = ".netlify/functions-internal"
 
 [[headers]]
   for = "/*"
