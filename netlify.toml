@@ -4,6 +4,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  NODE_ENV = "production"
   CI = "true"
   # Exclude Nuxt server bundles from secrets scanning (these use runtime env vars)
   SECRETS_SCAN_OMIT_PATHS = ".netlify/functions-internal/**,.nuxt/prerender/**"
